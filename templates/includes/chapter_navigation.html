@@ -16,8 +16,6 @@
                     <a href="/chapter/{{ chapter.chapter_number }}" class="btn btn-sm btn-outline-primary">
                         {% if chapter.has_content %}
                         Edit This Chapter
-                        {% elif chapter.chapter_number == 1 %}
-                        Start Writing
                         {% else %}
                         Write This Chapter
                         {% endif %}

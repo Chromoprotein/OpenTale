@@ -161,7 +161,7 @@ Write a complete chapter that:
 5. Has proper pacing with rising and falling tension
 6. Connects logically to previous and upcoming chapters
 
-The chapter should be at least 5000 words with a clear beginning, middle, and end structure.
+Give the chapter a clear beginning, middle, and end. There is no minimum length: cover the story beats naturally and completely, and end the chapter when the material concludes rather than padding with filler.
 """
 
 # Chapter editing prompt
@@ -203,7 +203,7 @@ Provide a comprehensive edit that:
 5. Strengthens dialogue and character interactions
 6. Maintains continuity with established world and plot
 7. Fixes any grammatical or structural issues
-8. Ensures the chapter is at least 5000 words
+8. Ensures the chapter covers its story beats naturally and completely without padding or filler
 
 Return the complete edited chapter.
 """

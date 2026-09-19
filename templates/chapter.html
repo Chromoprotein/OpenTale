@@ -17,7 +17,7 @@
                             <div class="accordion-item">
                                 <h2 class="accordion-header">
                                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#outlineCollapse">
-                                        Chapter Outline
+                                        Chapter Summary
                                     </button>
                                 </h2>
                                 <div id="outlineCollapse" class="accordion-collapse collapse" data-bs-parent="#chapterAccordion">
@@ -56,7 +56,7 @@
                             <div class="accordion-item">
                                <h2 class="accordion-header">
                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#styleCollapse">
-                                       Writing Style
+                                       Tense and POV
                                    </button>
                                </h2>
                                <div id="styleCollapse" class="accordion-collapse collapse" data-bs-parent="#chapterAccordion">
@@ -144,9 +144,10 @@
                                  <button type="button" class="btn btn-info" id="showPromptBtn">Show Regenerate Chapter Prompt</button>
                                  {% else %}
                                  <button type="button" class="btn btn-success me-2" id="generateChapterBtn">Generate Chapter</button>
-                                 <button type="button" class="btn btn-info" id="showPromptBtn">Show Generate Chapter Prompt</button>
-                                 {% endif %}
-                             </div>
+<button type="button" class="btn btn-info" id="showPromptBtn">Show Generate Chapter Prompt</button>
+                                {% endif %}
+                                <button type="button" class="btn btn-outline-secondary ms-2" id="clearChatBtn"><i class="bi bi-trash me-1"></i>Clear Chat</button>
+                            </div>
                          </div>
                     </div>
                     <div class="col-md-4">
@@ -216,13 +217,24 @@
 
 <script>
 $(document).ready(function() {
-    // Chat history
-    let chatHistory = [];
+    // Chat history (persisted in localStorage)
+    const CHAT_KEY = 'opentale_chat_chapter_{{ chapter.chapter_number }}';
+    let chatHistory = loadChatHistory(CHAT_KEY) || [];
     let chatReplyTimer = null;
     const chatButtons = {
         sendBtn: '#sendMessageBtn',
-        messageInput: '#userMessage'
+        messageInput: '#userMessage',
+        clearBtn: '#clearChatBtn'
     };
+
+    // Restore previous chat messages
+    if (chatHistory.length > 0) {
+        $('#chatMessages').empty();
+        chatHistory.forEach(msg => {
+            addMessageToChat(msg.role, msg.content);
+        });
+    }
+
     updateChatButtonStates(chatHistory, chatButtons);
 
     // Message editing & resubmission
@@ -241,6 +253,18 @@ $(document).ready(function() {
         setHistory: function(history) { chatHistory = history; },
         renderChat: renderChat,
         resubmit: queueCannedReply
+    });
+
+    // Clear chat
+    $('#clearChatBtn').click(function() {
+        confirmClearChat(function() {
+            chatEditing.cancel();
+            chatHistory = [];
+            clearChatHistory(CHAT_KEY);
+            $('#chatMessages').empty();
+            $('#chatMessages').html('<div class="mb-3"><div class="d-inline-block bg-body-tertiary p-2 rounded-3" style="max-width: 80%"><p class="mb-0">Share additional details or ask questions about how to develop this chapter. I\'ll use your input along with the chapter outline to create the content.</p></div></div>');
+            updateChatButtonStates(chatHistory, chatButtons);
+        });
     });
     
     // Send user message
@@ -283,6 +307,7 @@ $(document).ready(function() {
         
         // Update chat history
         chatHistory.push({role: 'user', content: message});
+        saveChatHistory(CHAT_KEY, chatHistory);
         updateChatButtonStates(chatHistory, chatButtons);
         
         queueCannedReply();
@@ -297,6 +322,7 @@ $(document).ready(function() {
             addMessageToChat('ai', response);
             // Add to chat history
             chatHistory.push({role: 'ai', content: response});
+            saveChatHistory(CHAT_KEY, chatHistory);
         }, 500);
     }
     
@@ -352,9 +378,11 @@ $(document).ready(function() {
                         // End of stream
                         $('#generatingIndicator').addClass('d-none');
                         $('#generateChapterBtn, #regenerateChapterBtn').prop('disabled', false);
-                        // Reset chat history after generating
-                        chatHistory = [];
-                        $('#chatMessages').html('<div class="mb-3"><div class="d-inline-block bg-body-tertiary p-2 rounded-3" style="max-width: 80%"><p class="mb-0">Chapter has been generated! You can continue to add details or make changes to refine it further.</p></div></div>');
+                        // Keep the chat and its details so regeneration still applies them
+                        const note = "The chapter has been generated using the requirements above. You can keep these details or update them, then regenerate anytime.";
+                        addMessageToChat('ai', note);
+                        chatHistory.push({role: 'ai', content: note});
+                        saveChatHistory(CHAT_KEY, chatHistory);
                         return;
                     }
 
