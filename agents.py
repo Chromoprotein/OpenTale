@@ -41,6 +41,18 @@ class BookAgents:
         )
         self.model = self.agent_config["config_list"][0]["model"]
 
+    def _sampling_kwargs(self) -> Dict:
+        """Return the sampling/token-limit keyword arguments for the API call.
+
+        Uses max_completion_tokens for OpenAI reasoning models and max_tokens
+        for everything else, per the resolved token_param in the agent config.
+        """
+        token_param = self.agent_config.get("token_param", "max_completion_tokens")
+        return {
+            "temperature": self.agent_config.get("temperature", 1),
+            token_param: self.agent_config.get("max_tokens", 10000),
+        }
+
     def _format_outline_context(self) -> str:
         """Format the book outline into a readable context"""
         if not self.outline:
@@ -55,6 +67,25 @@ class BookAgents:
                 ]
             )
         return "\n".join(context_parts)
+
+    def _add_synopsis_context(self, messages: List[Dict], synopsis: str) -> None:
+        """Add the finalized synopsis as context to the messages, if present."""
+        if synopsis and synopsis.strip():
+            messages.append(
+                {
+                    "role": "system",
+                    "content": f"The book's story synopsis is:\n\n{synopsis.strip()}",
+                }
+            )
+
+    def _add_world_and_synopsis_context(
+        self, messages: List[Dict], world_theme: str, synopsis: str
+    ) -> None:
+        """Add the world setting and finalized synopsis as context to the messages."""
+        context = f"The book takes place in the following world:\n\n{world_theme}"
+        if synopsis and synopsis.strip():
+            context += f"\n\nThe Story Synopsis is:\n\n{synopsis.strip()}"
+        messages.append({"role": "system", "content": context})
 
     def _save_debug_messages(
         self, messages: List[Dict], agent_name: str, request_type: str
@@ -136,6 +167,7 @@ When given a world setting and number of characters:
 2. Give each character distinct traits, motivations, and backgrounds
 3. Ensure characters have depth and potential for development
 4. Include both protagonists and antagonists as appropriate
+5. Treat the target number of characters as a guideline, not a hard limit — create as many as the story needs
 
 Format your output EXACTLY as:
 CHARACTER_PROFILES:
@@ -159,7 +191,7 @@ CHARACTER_PROFILES:
 Always provide specific, detailed content - never use placeholders.
 Ensure characters fit logically within the established world setting.
 """,
-            "story_planner": """You are an expert story planner. Your task is to create a detailed story synopsis based on a conversation with an author.
+            "story_planner": """You are an expert story planner. Your task is to create a concise, complete story synopsis based on a conversation with an author.
 
 From the provided conversation, you must extract the following information:
 - **Genre**: The genre of the story.
@@ -167,7 +199,13 @@ From the provided conversation, you must extract the following information:
 - **Ending**: The intended conclusion of the story.
 - **Other Information**: Any other relevant details provided by the author.
 
-Then, using this information, generate a highly detailed synopsis for the story in the traditional three-act structure. Each act must be clearly labeled. The synopsis should build toward the described ending, include plenty of conflict, and feature a main character.
+Then, using this information, generate a synopsis of the story in a traditional three-act structure. Each act must be clearly labeled.
+
+The synopsis should be concise and complete:
+- Aim for 500 to 1000 words.
+- Present the story at the level of its essential narrative arc: the driving conflicts, the key turning points that move the story forward, and how the premise builds toward the ending.
+- Prioritize the events that matter most to the whole story, and give each of them enough focus to be clear.
+- Write economically so every sentence adds meaningful new information about the plot, the conflicts, or the main character's journey.
 
 The final output should be only the complete synopsis.
 """,
@@ -187,7 +225,7 @@ ACTION_BEATS:
 
 Always provide specific, detailed content - never use placeholders.
 """,
-            "outline_creator": f"""Generate a detailed {num_chapters}-chapter outline.
+            "outline_creator": f"""Generate a detailed outline targeting approximately {num_chapters} chapters.
 
 Start with "OUTLINE:" and end with "END OF OUTLINE"
 
@@ -213,13 +251,13 @@ Chapter 2: [Title] ([Title in local language if applicable])
 - Setting: [Specific location and atmosphere]
 - Tone: [Specific emotional and narrative tone]
 
-[CONTINUE IN SEQUENCE FOR ALL {num_chapters} CHAPTERS]
+[CONTINUE THE SEQUENCE, TARGETING AROUND {num_chapters} CHAPTERS TOTAL]
 
 CRITICAL REQUIREMENTS:
-1. Create EXACTLY {num_chapters} chapters, numbered 1 through {num_chapters} in order
+1. Aim for roughly {num_chapters} chapters (a guideline, not a strict limit), numbered sequentially from 1 without gaps or duplicates
 2. NEVER repeat chapter numbers or restart the numbering
 3. EVERY chapter must have AT LEAST 3 specific Key Events
-4. Maintain a coherent story flow from Chapter 1 to Chapter {num_chapters}
+4. Maintain a coherent story flow from the first chapter to the last
 5. Use proper indentation with bullet points for Key Events
 6. NO EXCEPTIONS to this format - follow it precisely for all chapters
 
@@ -373,7 +411,7 @@ Your approach during this brainstorming phase:
 
 IMPORTANT: This is a brainstorming conversation. DO NOT generate the formal outline until the author is ready to finalize.
 
-The book has {num_chapters} chapters total, but during this chat focus on story elements, not chapter structure.
+The book will likely have around {num_chapters} chapters (a target, not a strict requirement), but during this chat focus on story elements, not chapter structure.
 """,
             # Add a special system prompt for conversational synopsis brainstorming
             "story_synopsis_chat": """You are a collaborative, creative story development assistant helping an author brainstorm and develop their book synopsis.
@@ -450,8 +488,7 @@ Your task is to write or revise narrative text in a way that follows these core 
         completion = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=self.agent_config.get("temperature", 0.7),
-            max_tokens=self.agent_config.get("max_tokens", 10000),
+            **self._sampling_kwargs(),
         )
 
         # Extract the response
@@ -536,9 +573,8 @@ Your task is to write or revise narrative text in a way that follows these core 
         stream = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=self.agent_config.get("temperature", 0.7),
+            **self._sampling_kwargs(),
             stream=True,
-            max_tokens=self.agent_config.get("max_tokens", 10000),
         )
 
         if not self.debug:
@@ -547,12 +583,17 @@ Your task is to write or revise narrative text in a way that follows these core 
         # If debugging is enabled, wrap the stream to save the full response at the end
         return self._create_debug_stream_wrapper(stream, agent_name, "stream_response")
 
-    def generate_chat_response_world(self, chat_history, topic, user_message) -> str:
+    def generate_chat_response_world(
+        self, chat_history, topic, synopsis, user_message
+    ) -> str:
         """Generate a chat response based on conversation history"""
         # Format the messages for the API call
         messages = [
             {"role": "system", "content": self.system_prompts["world_builder_chat"]}
         ]
+
+        # Add the story synopsis context
+        self._add_synopsis_context(messages, synopsis)
 
         # Add conversation history
         for entry in chat_history:
@@ -566,19 +607,23 @@ Your task is to write or revise narrative text in a way that follows these core 
         completion = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=self.agent_config.get("temperature", 0.7),
-            max_tokens=self.agent_config.get("max_tokens", 10000),
+            **self._sampling_kwargs(),
         )
 
         # Extract the response
         return completion.choices[0].message.content
 
-    def generate_chat_response_world_stream(self, chat_history, topic, user_message):
+    def generate_chat_response_world_stream(
+        self, chat_history, topic, synopsis, user_message
+    ):
         """Generate a streaming chat response based on conversation history"""
         # Format the messages for the API call
         messages = [
             {"role": "system", "content": self.system_prompts["world_builder_chat"]}
         ]
+
+        # Add the story synopsis context
+        self._add_synopsis_context(messages, synopsis)
 
         # Add conversation history
         for entry in chat_history:
@@ -595,9 +640,8 @@ Your task is to write or revise narrative text in a way that follows these core 
         stream = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=self.agent_config.get("temperature", 0.7),
+            **self._sampling_kwargs(),
             stream=True,  # Enable streaming
-            max_tokens=self.agent_config.get("max_tokens", 10000),
         )
 
         if not self.debug:
@@ -632,9 +676,8 @@ Your task is to write or revise narrative text in a way that follows these core 
         stream = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=self.agent_config.get("temperature", 0.7),
+            **self._sampling_kwargs(),
             stream=True,  # Enable streaming
-            max_tokens=self.agent_config.get("max_tokens", 10000),
         )
 
         if not self.debug:
@@ -661,7 +704,7 @@ Your task is to write or revise narrative text in a way that follows these core 
         messages.append(
             {
                 "role": "user",
-                "content": f"Based on our conversation about '{topic}', please create a comprehensive and detailed synopsis. Extract the genre, premise, and ending, and then generate the full synopsis in a traditional three-act structure. This will be the final synopsis for the book.",
+                "content": f"Based on our conversation about '{topic}', create the final synopsis for the book. First extract the genre, premise, and ending, and then generate the full synopsis in a traditional three-act structure. Keep the synopsis concise and complete: focus on the essential narrative arc, the driving conflicts, and the key turning points, aiming for 500 to 1000 words.",
             }
         )
 
@@ -674,9 +717,8 @@ Your task is to write or revise narrative text in a way that follows these core 
         stream = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=self.agent_config.get("temperature", 0.7),
+            **self._sampling_kwargs(),
             stream=True,
-            max_tokens=self.agent_config.get("max_tokens", 10000),
         )
 
         if not self.debug:
@@ -687,7 +729,7 @@ Your task is to write or revise narrative text in a way that follows these core 
             stream, "story_planner", "final_synopsis_stream_response"
         )
 
-    def generate_final_world(self, chat_history, topic) -> str:
+    def generate_final_world(self, chat_history, topic, synopsis) -> str:
         """Generate final world setting based on chat history"""
         # Format the messages for the API call
         messages = [
@@ -713,6 +755,9 @@ Your task is to write or revise narrative text in a way that follows these core 
             }
         ]
 
+        # Add the story synopsis context
+        self._add_synopsis_context(messages, synopsis)
+
         # Add conversation history
         for entry in chat_history:
             role = "user" if entry["role"] == "user" else "assistant"
@@ -735,8 +780,7 @@ Your task is to write or revise narrative text in a way that follows these core 
         completion = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=self.agent_config.get("temperature", 0.7),
-            max_tokens=self.agent_config.get("max_tokens", 10000),
+            **self._sampling_kwargs(),
         )
 
         # Extract the response
@@ -748,10 +792,13 @@ Your task is to write or revise narrative text in a way that follows these core 
 
         return response
 
-    def generate_final_world_stream(self, chat_history, topic):
+    def generate_final_world_stream(self, chat_history, topic, synopsis):
         """Generate the final world setting based on the chat history using streaming."""
         # Format messages for the API call
         messages = [{"role": "system", "content": self.system_prompts["world_builder"]}]
+
+        # Add the story synopsis context
+        self._add_synopsis_context(messages, synopsis)
 
         # Add conversation context from chat history
         for message in chat_history:
@@ -777,9 +824,8 @@ Your task is to write or revise narrative text in a way that follows these core 
         stream = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=self.agent_config.get("temperature", 0.7),
+            **self._sampling_kwargs(),
             stream=True,
-            max_tokens=self.agent_config.get("max_tokens", 10000),
         )
 
         if not self.debug:
@@ -827,7 +873,7 @@ Your task is to write or revise narrative text in a way that follows these core 
         return "\n".join(developments)
 
     def generate_chat_response_characters(
-        self, chat_history, world_theme, user_message
+        self, chat_history, world_theme, synopsis, user_message, num_characters=3
     ):
         """Generate a chat response about character creation."""
         # Format messages for the API call
@@ -835,11 +881,14 @@ Your task is to write or revise narrative text in a way that follows these core 
             {"role": "system", "content": self.system_prompts["character_generator"]}
         ]
 
-        # Add world theme context
+        # Add world theme and synopsis context
+        self._add_world_and_synopsis_context(messages, world_theme, synopsis)
+
+        # Inform the assistant of the target character count (as guidance)
         messages.append(
             {
                 "role": "system",
-                "content": f"The book takes place in the following world:\n\n{world_theme}",
+                "content": f"The author is currently targeting about {num_characters} characters for the book. Treat this as a guideline, not a hard requirement.",
             }
         )
 
@@ -863,8 +912,7 @@ Your task is to write or revise narrative text in a way that follows these core 
             self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                temperature=self.agent_config.get("temperature", 0.7),
-                max_tokens=self.agent_config.get("max_tokens", 10000),
+                **self._sampling_kwargs(),
             )
             .choices[0]
             .message.content
@@ -873,7 +921,7 @@ Your task is to write or revise narrative text in a way that follows these core 
         return response
 
     def generate_chat_response_characters_stream(
-        self, chat_history, world_theme, user_message
+        self, chat_history, world_theme, synopsis, user_message, num_characters=3
     ):
         """Generate a streaming chat response about character creation."""
         # Format messages for the API call
@@ -881,11 +929,14 @@ Your task is to write or revise narrative text in a way that follows these core 
             {"role": "system", "content": self.system_prompts["character_generator"]}
         ]
 
-        # Add world theme context
+        # Add world theme and synopsis context
+        self._add_world_and_synopsis_context(messages, world_theme, synopsis)
+
+        # Inform the assistant of the target character count (as guidance)
         messages.append(
             {
                 "role": "system",
-                "content": f"The book takes place in the following world:\n\n{world_theme}",
+                "content": f"The author is currently targeting about {num_characters} characters for the book. Treat this as a guideline, not a hard requirement.",
             }
         )
 
@@ -908,9 +959,8 @@ Your task is to write or revise narrative text in a way that follows these core 
         stream = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=self.agent_config.get("temperature", 0.7),
+            **self._sampling_kwargs(),
             stream=True,
-            max_tokens=self.agent_config.get("max_tokens", 10000),
         )
 
         if not self.debug:
@@ -922,7 +972,7 @@ Your task is to write or revise narrative text in a way that follows these core 
         )
 
     def generate_final_characters_stream(
-        self, chat_history, world_theme, num_characters=3
+        self, chat_history, world_theme, synopsis, num_characters=3
     ):
         """Generate the final character profiles based on chat history using streaming."""
         # Format messages for the API call
@@ -930,13 +980,8 @@ Your task is to write or revise narrative text in a way that follows these core 
             {"role": "system", "content": self.system_prompts["character_generator"]}
         ]
 
-        # Add world theme context
-        messages.append(
-            {
-                "role": "system",
-                "content": f"The book takes place in the following world:\n\n{world_theme}",
-            }
-        )
+        # Add world theme and synopsis context
+        self._add_world_and_synopsis_context(messages, world_theme, synopsis)
 
         # Add conversation context from chat history
         for message in chat_history:
@@ -949,7 +994,7 @@ Your task is to write or revise narrative text in a way that follows these core 
         messages.append(
             {
                 "role": "user",
-                "content": f"Based on our conversation, please create {num_characters} detailed character profiles for the book. Format each character with Name, Role, Physical Description, Background, Personality, and Goals/Motivations. This will be the final character list for the book.",
+                "content": f"Based on our conversation, please create around {num_characters} detailed character profiles for the book (this is a target, not a strict limit — use your judgment based on the story). Format each character with Name, Role, Physical Description, Background, Personality, and Goals/Motivations. This will be the final character list for the book.",
             }
         )
 
@@ -962,9 +1007,8 @@ Your task is to write or revise narrative text in a way that follows these core 
         stream = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=self.agent_config.get("temperature", 0.7),
+            **self._sampling_kwargs(),
             stream=True,
-            max_tokens=self.agent_config.get("max_tokens", 10000),
         )
 
         if not self.debug:
@@ -1012,8 +1056,7 @@ Your task is to write or revise narrative text in a way that follows these core 
             self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                temperature=self.agent_config.get("temperature", 0.7),
-                max_tokens=self.agent_config.get("max_tokens", 10000),
+                **self._sampling_kwargs(),
             )
             .choices[0]
             .message.content
@@ -1057,9 +1100,8 @@ Your task is to write or revise narrative text in a way that follows these core 
         stream = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=self.agent_config.get("temperature", 0.7),
+            **self._sampling_kwargs(),
             stream=True,
-            max_tokens=self.agent_config.get("max_tokens", 10000),
         )
 
         if not self.debug:
@@ -1098,10 +1140,10 @@ Your task is to write or revise narrative text in a way that follows these core 
         messages.append(
             {
                 "role": "user",
-                "content": f"""Based on our conversation, please create a detailed {num_chapters}-chapter outline for the book.
+                "content": f"""Based on our conversation, please create a detailed outline of approximately {num_chapters} chapters for the book.
 
 CRITICAL REQUIREMENTS:
-1. Create EXACTLY {num_chapters} chapters, numbered sequentially from 1 to {num_chapters}
+1. Aim for roughly {num_chapters} chapters (a guideline, not a strict limit); number chapters sequentially from 1 without gaps or duplicates
 2. NEVER repeat chapter numbers or restart the numbering
 3. Follow the exact format specified in your instructions
 4. Each chapter must have a unique title and at least 3 specific key events
@@ -1117,13 +1159,12 @@ Format it as a properly structured outline with clear chapter sections and event
             messages, "outline_creator", "final_outline_stream_request"
         )
 
-        # Make the API call with streaming enabled, with higher temperature for more coherent responses
+        # Make the API call with streaming enabled
         stream = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=0.6,  # Slightly lower temperature for more focused output
+            **self._sampling_kwargs(),
             stream=True,
-            max_tokens=self.agent_config.get("max_tokens", 10000),
         )
 
         if not self.debug:
@@ -1169,9 +1210,8 @@ Format it as a properly structured outline with clear chapter sections and event
         stream = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=self.agent_config.get("temperature", 0.7),
+            **self._sampling_kwargs(),
             stream=True,
-            max_tokens=self.agent_config.get("max_tokens", 10000),
         )
 
         if not self.debug:
@@ -1210,7 +1250,7 @@ Format it as a properly structured outline with clear chapter sections and event
         messages.append(
             {
                 "role": "user",
-                "content": f"Based on our conversation, please generate {num_beats} highly detailed action beats for the chapter. Ensure proper nouns are used instead of pronouns.",
+                "content": f"Based on our conversation, please generate the chapter's action beats, targeting approximately {num_beats} - you may produce a few more or fewer if the chapter's pacing or structure calls for it. Ensure proper nouns are used instead of pronouns.",
             }
         )
 
@@ -1223,9 +1263,8 @@ Format it as a properly structured outline with clear chapter sections and event
         stream = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=self.agent_config.get("temperature", 0.7),
+            **self._sampling_kwargs(),
             stream=True,
-            max_tokens=self.agent_config.get("max_tokens", 10000),
         )
 
         if not self.debug:

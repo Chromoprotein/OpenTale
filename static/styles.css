@@ -11,21 +11,6 @@ main.container {
     padding-bottom: 2rem;
 }
 
-/* Improve the progress bar visibility */
-.progress {
-    height: 1.5rem;
-    font-size: 0.9rem;
-    font-weight: bold;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-}
-
-.progress-bar {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: width 0.6s ease;
-}
-
 /* Style cards consistently */
 .card {
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -34,6 +19,82 @@ main.container {
 
 .card-header {
     font-weight: bold;
+}
+
+/* Chat composer sticks to the bottom while the page scrolls */
+.chat-composer {
+    position: sticky;
+    bottom: 0;
+    padding: 0.75rem 0 0.25rem;
+    background: var(--bs-body-bg, #fff);
+    z-index: 10;
+}
+
+/* Keep the chat messages area at its natural content height so the composer
+   sits directly below the messages instead of being stretched to the bottom. */
+#chatContainer,
+.chat-col {
+    display: flex;
+    flex-direction: column;
+}
+
+#chatMessages {
+    flex: 0 0 auto;
+}
+
+/* The chat message input stays compact, can be grown up to 40vh (then scrolls
+   internally), but never shrinks below its default height and never stretches
+   the Send button. */
+.chat-composer textarea {
+    min-height: 5.75rem;
+    max-height: 40vh;
+    resize: vertical;
+}
+
+/* When editing content (a Quill editor) is visible on the page, the composer
+   scrolls in normal flow so resizing grows it downward and it doesn't float
+   over the editor below. */
+.chat-composer.composer-in-flow {
+    position: static;
+}
+
+/* Editing state for chat messages */
+.edit-chat-hint {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+    color: var(--bs-secondary-color);
+    background: var(--bs-tertiary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.375rem;
+    padding: 0.25rem 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.user-msg.editing-msg {
+    outline: 2px dashed var(--bs-primary);
+    outline-offset: 3px;
+    border-radius: 0.5rem;
+}
+
+.msg-edit-btn {
+    font-size: 0.85rem;
+    color: var(--bs-secondary-color);
+}
+
+.msg-edit-btn:hover {
+    color: var(--bs-primary);
+}
+
+/* On chat pages, remove the empty space between the composer and the footer so
+   the composer sits flush above the footer at the end of the scroll. */
+body:has(.chat-composer) main.container {
+    padding-bottom: 0;
+}
+
+body:has(.chat-composer) footer {
+    margin-top: 0;
 }
 
 /* Chapter navigation styling */
@@ -83,12 +144,8 @@ textarea#charactersContent {
     height: 1.5rem;
 }
 
-/* Add a subtle background pattern */
 body {
-    background-color: #f8f9fa;
-    background-image: linear-gradient(rgba(255, 255, 255, 0.7) 1px, transparent 1px),
-                      linear-gradient(90deg, rgba(255, 255, 255, 0.7) 1px, transparent 1px);
-    background-size: 20px 20px;
+    background-color: var(--bs-body-bg);
 } 
 
 /* Quill Editor Styling */
@@ -154,4 +211,51 @@ body {
 /* Ensure modal backdrop is below the modal */
 .modal-backdrop {
     z-index: 1049 !important;
+}
+
+/* Preserve line breaks in the chat's story-context collapsibles */
+.context-text {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Dark mode overrides for the Quill snow theme */
+[data-bs-theme="dark"] .ql-toolbar.ql-snow,
+[data-bs-theme="dark"] .ql-container.ql-snow {
+    border-color: var(--bs-border-color);
+}
+
+[data-bs-theme="dark"] .ql-snow .ql-stroke {
+    stroke: var(--bs-body-color);
+    fill: none;
+}
+
+[data-bs-theme="dark"] .ql-snow .ql-fill {
+    fill: var(--bs-body-color);
+}
+
+[data-bs-theme="dark"] .ql-snow .ql-stroke.ql-fill {
+    fill: var(--bs-body-color);
+}
+
+[data-bs-theme="dark"] .ql-snow .ql-picker,
+[data-bs-theme="dark"] .ql-snow .ql-picker-label,
+[data-bs-theme="dark"] .ql-snow .ql-picker-options {
+    color: var(--bs-body-color);
+}
+
+[data-bs-theme="dark"] .ql-snow .ql-picker-label::before {
+    color: var(--bs-body-color);
+}
+
+[data-bs-theme="dark"] .ql-snow .ql-picker-options {
+    background-color: var(--bs-body-bg);
+    border-color: var(--bs-border-color);
+}
+
+[data-bs-theme="dark"] .ql-editor pre.ql-syntax,
+[data-bs-theme="dark"] .ql-editor .ql-code-block-container {
+    background-color: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
+    border-radius: 0.375rem;
 }

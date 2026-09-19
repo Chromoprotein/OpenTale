@@ -2,133 +2,109 @@
 
 {% block title %}OpenTale - Action Beats Chat for Chapter {{ chapter.chapter_number }}{% endblock %}
 
+{% block navbar_title %}Action Beats Chat - Chapter {{ chapter.chapter_number }}: {{ chapter.title }}{% endblock %}
+
 {% block content %}
 <div class="row">
-    <div class="col-12 mb-4">
-        <div class="card">
-            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-                <h2 class="h4 mb-0">Action Beats Chat for Chapter {{ chapter.chapter_number }}: {{ chapter.title }}</h2>
-                <div>
-                    <a href="/chapter/{{ chapter.chapter_number }}" class="btn btn-primary btn-sm">&laquo; Back to Chapter</a>
-                    {% if chapter.chapter_number > 1 %}
-                    <a href="/action_beats_chat/{{ chapter.chapter_number - 1 }}" class="btn btn-light btn-sm">&laquo; Previous Chapter</a>
-                    {% endif %}
-                    {% if chapter.chapter_number < chapters|length %}
-                    <a href="/action_beats_chat/{{ chapter.chapter_number + 1 }}" class="btn btn-light btn-sm">Next Chapter &raquo;</a>
-                    {% endif %}
-                </div>
-            </div>
-            <div class="card-body">
-                {% if not action_beats_content %}
-                <div class="alert alert-info alert-dismissible fade show" role="alert">
-                    <strong>No action beats generated yet.</strong> Use the chat below to generate the first set of action beats for this chapter.
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                </div>
-                {% endif %}
-                <div class="mb-4">
-                    <h3 class="h5">Chapter Summary:</h3>
-                    <div class="card bg-light">
-                        <div class="card-body">
-                            <p class="mb-0">{{ chapter.prompt[:200] }}{% if chapter.prompt|length > 200 %}...{% endif %}</p>
-                            <button class="btn btn-sm btn-outline-secondary mt-2" type="button" data-bs-toggle="collapse" data-bs-target="#fullChapterSummary">
-                                Show Full Chapter Summary
-                            </button>
-                            <div class="collapse mt-2" id="fullChapterSummary">
-                                <div class="card card-body">
-                                    {{ chapter.prompt }}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                <p class="lead">Chat with the AI to develop your chapter's action beats. Describe your ideas for action sequences, answer questions, and refine the pacing together.</p>
-                
-                <div class="mb-3">
-                    <label for="numBeats" class="form-label">How many action beats would you like to generate?</label>
-                    <input type="number" class="form-control" id="numBeats" name="num_beats" min="1" max="20" value="12">
-                </div>
-            </div>
-        </div>
-    </div>
     
     <!-- Chat interface -->
     <div class="col-12 mb-4" id="chatContainer" data-chapter-number="{{ chapter.chapter_number }}">
-        <div class="card">
-            <div class="card-header bg-primary text-white">
-                <h3 class="h5 mb-0">Action Beats Development Chat</h3>
-            </div>
-            <div class="card-body">
-                <div id="chatMessages" class="p-3 mb-3 border rounded" style="height: 400px; overflow-y: auto;">
-                    <div class="text-center p-3">
-                        <p>Tell me about the action sequences you envision for this chapter. What key moments or movements should be included?</p>
-                    </div>
-                </div>
-                
-                <div class="d-flex">
-                    <input type="text" id="userMessage" class="form-control me-2" placeholder="Type your ideas about action beats you want to create...">
-                    <button id="sendMessageBtn" class="btn btn-primary">Send</button>
-                </div>
-                
-                {% if not action_beats_content %}
-                <div class="alert alert-info mt-3">
-                    <h5 class="alert-heading">How to Generate Action Beats</h5>
-                    <p>You have two main options for generating the action beats for this chapter:</p>
-                    <hr>
-                    <p class="mb-1"><strong>1. Use the Chat for Detailed Guidance:</strong></p>
-                    <p class="small">Engage in a conversation in the chat below. Provide specific ideas, scenes, or character interactions. Your entire chat history, along with world, character, and previous chapter context, will be used to create a detailed set of action beats tailored to your input.</p>
-                    
-                    <p class="mb-1"><strong>2. Generate Directly:</strong></p>
-                    <p class="small">If you prefer a quicker start, simply click the "Generate Action Beats" button. The AI will automatically create a set of action beats based on the chapter summary, world and character context, a summary of the previous chapter, and the requested number of beats.</p>
-                </div>
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <div class="d-flex align-items-center flex-wrap gap-2 ms-auto">
+                <a href="/chapter/{{ chapter.chapter_number }}" class="btn btn-outline-secondary btn-sm">&laquo; Back to Chapter</a>
+                {% if chapter.chapter_number > 1 %}
+                <a href="/action_beats_chat/{{ chapter.chapter_number - 1 }}" class="btn btn-outline-secondary btn-sm">&laquo; Prev</a>
                 {% endif %}
-                <div class="mt-3">
-                    <button id="finalizeChatBtn" class="btn btn-success">
-                        {% if action_beats_content %}Regenerate Action Beats{% else %}Generate Action Beats{% endif %}
+                {% if chapter.chapter_number < chapters|length %}
+                <a href="/action_beats_chat/{{ chapter.chapter_number + 1 }}" class="btn btn-outline-secondary btn-sm">Next &raquo;</a>
+                {% endif %}
+            </div>
+        </div>
+        <div class="accordion mb-4" id="actionBeatsContextAccordion" style="max-width: 80%">
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#fullChapterSummary">
+                        Chapter Summary
                     </button>
-                </div>
-                
-                <div id="chatTypingIndicator" class="alert alert-info mt-3 d-none">
-                    <div class="d-flex align-items-center">
-                        <div class="spinner-border spinner-border-sm me-2" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <div>AI is thinking...</div>
+                </h2>
+                <div id="fullChapterSummary" class="accordion-collapse collapse" data-bs-parent="#actionBeatsContextAccordion">
+                    <div class="accordion-body">
+                        <p class="context-text text-muted mb-0">{{ chapter.prompt }}</p>
                     </div>
                 </div>
+            </div>
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#numBeatsCollapse">
+                        How many action beats would you like to generate? <span class="badge bg-secondary ms-2" id="numBeatsBadge" style="font-size: 0.60em;">{{ num_beats }}</span>
+                    </button>
+                </h2>
+                <div id="numBeatsCollapse" class="accordion-collapse collapse" data-bs-parent="#actionBeatsContextAccordion">
+                    <div class="accordion-body">
+                        <label for="numBeats" class="form-label visually-hidden">How many action beats would you like to generate?</label>
+                        <input type="number" class="form-control" id="numBeats" name="num_beats" min="1" max="20" value="{{ num_beats }}" style="max-width: 200px">
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="chatMessages">
+            <div class="mb-3">
+                <div class="d-inline-block bg-body-tertiary p-2 rounded-3" style="max-width: 80%">
+                    <p class="mb-0">Tell me about the action sequences you envision for this chapter. What key moments or movements should be included?</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="chat-composer">
+            <div id="chatTypingIndicator" class="alert alert-info p-2 mb-2 d-none">
+                <div class="d-flex align-items-center">
+                    <div class="spinner-border spinner-border-sm me-2" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <div>AI is thinking...</div>
+                </div>
+            </div>
+            <div class="d-flex align-items-end">
+                <textarea id="userMessage" class="form-control me-2" rows="3" placeholder="Type your ideas about action beats you want to create..."></textarea>
+                <button id="sendMessageBtn" class="btn btn-primary" disabled>Send</button>
+            </div>
+            
+            <div class="mt-3">
+                <button id="finalizeChatBtn" class="btn btn-success" disabled>
+                    {% if action_beats_content %}Regenerate Action Beats{% else %}Generate Action Beats{% endif %}
+                </button>
+                <button id="useDraftBtn" class="btn btn-outline-primary ms-2" disabled>Use Draft in Editor</button>
+                <button id="clearChatBtn" class="btn btn-outline-secondary ms-2" disabled><i class="bi bi-trash me-1"></i>Clear Chat</button>
             </div>
         </div>
     </div>
     
     <div class="col-12" id="actionBeatsResultContainer" style="display: none;">
-        <div class="card">
-            <div class="card-header bg-success text-white">
-                <h3 class="h5 mb-0">Your Action Beats</h3>
+        <form id="saveActionBeatsForm" action="/save_action_beats/{{ chapter.chapter_number }}" method="post">
+            <div class="mb-3">
+                <label for="actionBeatsContent" class="form-label">Edit your action beats if needed:</label>
+                <textarea class="form-control" id="actionBeatsContent" name="action_beats_content" rows="15">{{ action_beats_content }}</textarea>
             </div>
-            <div class="card-body">
-                <form id="saveActionBeatsForm" action="/save_action_beats/{{ chapter.chapter_number }}" method="post">
-                    <div class="mb-3">
-                        <label for="actionBeatsContent" class="form-label">Edit your action beats if needed:</label>
-                        <textarea class="form-control" id="actionBeatsContent" name="action_beats_content" rows="15">{{ action_beats_content }}</textarea>
-                    </div>
-                    <div class="d-flex justify-content-between">
-                        <button type="submit" class="btn btn-success" id="saveActionBeatsBtn">Save Changes</button>
-                        <a href="/chapter/{{ chapter.chapter_number }}" class="btn btn-primary">Return to Chapter</a>
-                    </div>
-                </form>
-                
-                <div id="savingIndicator" class="alert alert-info mt-3 d-none">
-                    <div class="d-flex align-items-center">
-                        <div class="spinner-border spinner-border-sm me-2" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <div>Saving changes...</div>
-                    </div>
+            <div class="d-flex justify-content-between">
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-primary" id="acceptActionBeatsBtn" disabled><i class="bi bi-check-lg me-1"></i>Accept &amp; Clear Chat</button>
+                    <button type="submit" class="btn btn-success" id="saveActionBeatsBtn">Save Changes</button>
                 </div>
-                
-                <div id="savedIndicator" class="alert alert-success mt-3 d-none">
-                    <div>Action beats saved successfully!</div>
-                </div>
+                <a href="/chapter/{{ chapter.chapter_number }}" class="btn btn-primary">Return to Chapter</a>
             </div>
+        </form>
+        
+        <div id="savingIndicator" class="alert alert-info mt-3 d-none">
+            <div class="d-flex align-items-center">
+                <div class="spinner-border spinner-border-sm me-2" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <div>Saving changes...</div>
+            </div>
+        </div>
+        
+        <div id="savedIndicator" class="alert alert-success mt-3 d-none">
+            <div>Action beats saved successfully!</div>
         </div>
     </div>
 </div>
@@ -136,7 +112,59 @@
 <script>
 $(document).ready(function() {
     const chapterNumber = $('#chatContainer').data('chapter-number');
-    let chatHistory = [];
+    const CHAT_KEY = 'opentale_chat_action_beats_' + chapterNumber;
+    let chatHistory = loadChatHistory(CHAT_KEY) || [];
+    let lastDraftText = null;
+    const chatButtons = {
+        finalizeBtn: '#finalizeChatBtn',
+        acceptBtn: '#acceptActionBeatsBtn',
+        sendBtn: '#sendMessageBtn',
+        messageInput: '#userMessage',
+        clearBtn: '#clearChatBtn'
+    };
+
+    // Restore previous chat messages
+    if (chatHistory.length > 0) {
+        $('#chatMessages').empty();
+        chatHistory.forEach(msg => {
+            addMessageToChat(msg.role, msg.content);
+        });
+    }
+
+    updateChatButtonStates(chatHistory, chatButtons);
+
+    // Message editing & resubmission
+    function renderChat() {
+        $('#chatMessages').empty();
+        chatHistory.forEach(msg => {
+            addMessageToChat(msg.role, msg.content);
+        });
+    }
+
+    const chatEditing = setupChatEditing({
+        container: '#chatMessages',
+        composer: '.chat-composer',
+        input: '#userMessage',
+        getHistory: function() { return chatHistory; },
+        setHistory: function(history) { chatHistory = history; },
+        renderChat: renderChat,
+        resubmit: streamAiResponse
+    });
+
+    // Clear chat
+    $('#clearChatBtn').click(function() {
+        confirmClearChat(function() {
+            chatEditing.cancel();
+            chatHistory = [];
+            lastDraftText = null;
+            $('#useDraftBtn').prop('disabled', true);
+            clearChatHistory(CHAT_KEY);
+            $('#chatMessages').empty();
+            $('#chatMessages').html('<div class="mb-3"><div class="d-inline-block bg-body-tertiary p-2 rounded-3" style="max-width: 80%"><p class="mb-0">Tell me about the action sequences you envision for this chapter. What key moments or movements should be included?</p></div></div>');
+            $('#chatTypingIndicator').addClass('d-none');
+            updateChatButtonStates(chatHistory, chatButtons);
+        });
+    });
 
     // Show action beats result container if content exists
     const existingActionBeats = $('#actionBeatsContent').val().trim();
@@ -146,7 +174,7 @@ $(document).ready(function() {
 
     // Save numBeats on change
     $('#numBeats').on('change', function() {
-        const numBeats = $(this).val();
+        const numBeats = $(this).val() || 0;
         $.ajax({
             type: 'POST',
             url: '/save_setting',
@@ -157,6 +185,11 @@ $(document).ready(function() {
             }
         });
     });
+
+    // Update the badge immediately as the user types
+    $('#numBeats').on('input', function() {
+        $('#numBeatsBadge').text($(this).val() || 0);
+    });
     
     // Send user message
     $('#sendMessageBtn').click(function() {
@@ -164,40 +197,61 @@ $(document).ready(function() {
     });
     
     // Also send message when user presses Enter
-    $('#userMessage').keypress(function(e) {
-        if (e.which === 13) {
-            sendUserMessage();
+    $('#userMessage').keydown(function(e) {
+        if (e.which === 13 && !e.shiftKey) {
             e.preventDefault();
+            sendUserMessage();
         }
+    });
+
+    // Update the Send button as the user types
+    $('#userMessage').on('input', function() {
+        updateChatButtonStates(chatHistory, chatButtons);
     });
     
     function sendUserMessage() {
         const message = $('#userMessage').val().trim();
         if (!message) return;
-        
+
+        if (chatEditing.active()) {
+            lastDraftText = null;
+            $('#useDraftBtn').prop('disabled', true);
+            chatEditing.submit(message);
+            saveChatHistory(CHAT_KEY, chatHistory);
+            updateChatButtonStates(chatHistory, chatButtons);
+            return;
+        }
+
         // Add user message to chat
         addMessageToChat('user', message);
         
         // Clear input field
         $('#userMessage').val('');
         
-        // Show AI is thinking
-        $('#chatTypingIndicator').removeClass('d-none');
-        
         // Update chat history
         chatHistory.push({role: 'user', content: message});
+        saveChatHistory(CHAT_KEY, chatHistory);
+        updateChatButtonStates(chatHistory, chatButtons);
         
+        streamAiResponse(message);
+    }
+
+    function streamAiResponse(message) {
+        // Show AI is thinking
+        $('#chatTypingIndicator').removeClass('d-none');
+        chatEditing.setBusy(true);
+
         // Create a message div for the AI response
         const messageDiv = $('<div>').addClass('mb-3 text-start');
         const messageBubble = $('<div>')
-            .addClass('d-inline-block bg-light p-2 rounded-3')
+            .addClass('d-inline-block bg-body-tertiary p-2 rounded-3')
             .css('max-width', '80%')
             .html('<span class="typing-cursor">▌</span>');
         messageDiv.append(messageBubble);
         $('#chatMessages').append(messageDiv);
         
         // Scroll to bottom
-        $('#chatMessages').scrollTop($('#chatMessages')[0].scrollHeight);
+        scrollChatToBottom();
         
         // Prepare request data
         const requestData = {
@@ -226,8 +280,10 @@ $(document).ready(function() {
                     if (done) {
                         // End of stream
                         $('#chatTypingIndicator').addClass('d-none');
+                        chatEditing.setBusy(false);
                         // Update chat history with complete response
                         chatHistory.push({role: 'ai', content: responseContent});
+                        saveChatHistory(CHAT_KEY, chatHistory);
                         // Remove typing cursor
                         messageBubble.find('.typing-cursor').remove();
                         return;
@@ -253,9 +309,6 @@ $(document).ready(function() {
                                 
                                 // Update the message bubble with formatted content
                                 messageBubble.html(formatMessage(responseContent) + '<span class="typing-cursor">▌</span>');
-                                
-                                // Scroll to bottom as content arrives
-                                $('#chatMessages').scrollTop($('#chatMessages')[0].scrollHeight);
                             } catch (e) {
                                 console.error('Error parsing JSON:', e, jsonData);
                             }
@@ -272,29 +325,31 @@ $(document).ready(function() {
         }).catch(error => {
             console.error('Fetch error:', error);
             $('#chatTypingIndicator').addClass('d-none');
+            chatEditing.setBusy(false);
             addMessageToChat('system', 'Error streaming response. Please try again.');
         });
     }
     
     // Finalize action beats
     $('#finalizeChatBtn').click(function() {
+        chatEditing.cancel();
         // Show AI is thinking
         $('#chatTypingIndicator').removeClass('d-none');
         
         // Disable button
         $(this).prop('disabled', true);
-        
-        // Prepare the textarea in the result container
-        $('#actionBeatsContent').val('');
-        
-        // Show result container
-        $('#actionBeatsResultContainer').show();
-        
-        // Create a typing cursor for streaming effect
-        let actionBeatsText = '';
-        const actionBeatsTextarea = $('#actionBeatsContent');
-        actionBeatsTextarea.val('');
-        
+
+        // Create a chat bubble to stream the draft into
+        const draftDiv = $('<div>').addClass('mb-3 text-start');
+        const draftBubble = $('<div>')
+            .addClass('d-inline-block bg-body-tertiary p-2 rounded-3')
+            .css('max-width', '80%')
+            .html('<span class="typing-cursor">▌</span>');
+        draftDiv.append(draftBubble);
+        $('#chatMessages').append(draftDiv);
+
+        let draftText = '';
+
         // Make a streaming request for the final action beats
         fetch(`/finalize_action_beats_stream/${chapterNumber}`, {
             method: 'POST',
@@ -317,6 +372,15 @@ $(document).ready(function() {
                         // End of stream
                         $('#chatTypingIndicator').addClass('d-none');
                         $('#finalizeChatBtn').prop('disabled', false);
+                        // Remove typing cursor
+                        draftBubble.find('.typing-cursor').remove();
+                        // Save the draft to history and enable moving it to the result box
+                        if (draftText) {
+                            lastDraftText = draftText;
+                            chatHistory.push({role: 'ai', content: draftText});
+                            saveChatHistory(CHAT_KEY, chatHistory);
+                            $('#useDraftBtn').prop('disabled', false);
+                        }
                         return;
                     }
                     
@@ -335,14 +399,11 @@ $(document).ready(function() {
                                     return;
                                 }
                                 
-                                // Append new content
-                                actionBeatsText += data.content;
+                                // Append new content to the draft
+                                draftText += data.content;
                                 
-                                // Update the textarea with all content so far
-                                actionBeatsTextarea.val(actionBeatsText);
-                                
-                                // Scroll textarea to bottom to follow updates
-                                actionBeatsTextarea.scrollTop(actionBeatsTextarea[0].scrollHeight);
+                                // Stream the draft into the chat bubble
+                                draftBubble.html(formatMessage(draftText) + '<span class="typing-cursor">▌</span>');
                             } catch (e) {
                                 console.error('Error parsing JSON:', e, jsonData);
                             }
@@ -363,20 +424,54 @@ $(document).ready(function() {
             alert('Error finalizing action beats. Please try again.');
         });
     });
+
+    // Use the latest finalized draft in the result box
+    $('#useDraftBtn').click(function() {
+        if (!lastDraftText) return;
+        const btn = $(this);
+        btn.prop('disabled', true);
+        $.post(`/save_action_beats/${chapterNumber}`, { action_beats_content: lastDraftText })
+            .done(function() {
+                $('#actionBeatsContent').val(lastDraftText);
+                $('#actionBeatsResultContainer').show();
+            })
+            .fail(function() {
+                alert('Error saving the action beats draft. Please try again.');
+            })
+            .always(function() {
+                btn.prop('disabled', false);
+            });
+    });
+    
+    // Accept action beats and clear the chat
+    $('#acceptActionBeatsBtn').click(function() {
+        chatHistory = [];
+        clearChatHistory(CHAT_KEY);
+        $('#chatMessages').empty();
+        lastDraftText = null;
+        $('#useDraftBtn').prop('disabled', true);
+        updateChatButtonStates(chatHistory, chatButtons);
+    });
     
     // Add message to chat display
     function addMessageToChat(sender, message) {
         const messageDiv = $('<div>').addClass('mb-3');
         
         if (sender === 'user') {
-            messageDiv.addClass('text-end');
-            const messageBubble = $('<div>').addClass('d-inline-block bg-primary text-white p-2 rounded-3')
+            messageDiv.addClass('text-end user-msg');
+            const messageBubble = $('<div>').addClass('d-inline-block bg-primary text-white p-2 rounded-3 msg-bubble')
                                             .css('max-width', '80%')
                                             .html(formatMessage(message));
             messageDiv.append(messageBubble);
+            const editBtn = $('<button>')
+                .attr('type', 'button')
+                .addClass('btn btn-link btn-sm p-0 ms-1 msg-edit-btn')
+                .attr('title', 'Edit message')
+                .html('<i class="bi bi-pencil"></i>');
+            messageDiv.append(editBtn);
         } else if (sender === 'ai') {
             messageDiv.addClass('text-start');
-            const messageBubble = $('<div>').addClass('d-inline-block bg-light p-2 rounded-3')
+            const messageBubble = $('<div>').addClass('d-inline-block bg-body-tertiary p-2 rounded-3')
                                             .css('max-width', '80%')
                                             .html(formatMessage(message));
             messageDiv.append(messageBubble);
@@ -389,9 +484,6 @@ $(document).ready(function() {
         }
         
         $('#chatMessages').append(messageDiv);
-        
-        // Scroll to bottom
-        $('#chatMessages').scrollTop($('#chatMessages')[0].scrollHeight);
     }
     
     // Format message with line breaks

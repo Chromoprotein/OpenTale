@@ -6,6 +6,7 @@ import json
 import math
 import os
 import re
+import shutil
 
 from flask import (
     Flask,
@@ -113,6 +114,23 @@ def get_chapters():
             and os.path.getsize(action_beats_file_path) > 0
         )
     return chapters
+
+
+@app.context_processor
+def inject_chapters_enabled():
+    """Expose whether the Chapters page prerequisites are complete."""
+
+    def has_content(path):
+        return os.path.exists(path) and os.path.getsize(path) > 0
+
+    return {
+        "chapters_enabled": (
+            has_content(SYNOPSIS_FILE)
+            and has_content(WORLD_FILE)
+            and has_content(CHARACTERS_FILE)
+            and has_content(OUTLINE_FILE)
+        ),
+    }
 
 
 def get_paginated_chapters(page, per_page):
@@ -324,13 +342,6 @@ def finalize_synopsis_stream():
         # Combine all chunks for the complete content
         complete_content = "".join(collected_content)
 
-        # Clean and save synopsis to file once streaming is complete
-        synopsis_content = complete_content.strip()
-        synopsis_content = re.sub(r"\n+", "\n", synopsis_content)
-
-        with open(SYNOPSIS_FILE, "w") as f:
-            f.write(synopsis_content)
-
         # Send completion marker
         yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
@@ -353,6 +364,15 @@ def save_synopsis():
     return jsonify({"success": True})
 
 
+@app.route("/delete_synopsis", methods=["POST"])
+def delete_synopsis():
+    """Delete the saved synopsis so it can be recreated."""
+    if os.path.exists(SYNOPSIS_FILE):
+        os.remove(SYNOPSIS_FILE)
+
+    return jsonify({"success": True})
+
+
 @app.route("/world", methods=["GET"])
 def world():
     # Check if synopsis exist
@@ -362,12 +382,14 @@ def world():
 
     # GET request - show world page with existing theme if available
     world_theme = get_world_theme()
+    synopsis = get_synopsis()
     settings = get_settings()
     chapters = get_chapters()
 
     return render_template(
         "world.html",
         world_theme=world_theme,
+        synopsis=synopsis,
         topic=settings.get("topic", ""),
         chapters=chapters,
     )
@@ -393,7 +415,7 @@ def world_chat():
 
     # Generate response using the direct chat method
     ai_response = book_agents.generate_chat_response_world(
-        chat_history, topic, user_message
+        chat_history, topic, get_synopsis(), user_message
     )
 
     # Clean the response
@@ -422,7 +444,7 @@ def world_chat_stream():
 
     # Generate streaming response
     stream = book_agents.generate_chat_response_world_stream(
-        chat_history, topic, user_message
+        chat_history, topic, get_synopsis(), user_message
     )
 
     def generate():
@@ -463,7 +485,7 @@ def finalize_world():
     book_agents.create_agents(topic, 0)
 
     # Generate the final world setting using the direct method
-    world_theme = book_agents.generate_final_world(chat_history, topic)
+    world_theme = book_agents.generate_final_world(chat_history, topic, get_synopsis())
 
     # Clean and save world theme to file
     world_theme = world_theme.strip()
@@ -487,7 +509,9 @@ def finalize_world_stream():
     book_agents.create_agents(topic, 0)
 
     # Generate the final world setting using streaming
-    stream = book_agents.generate_final_world_stream(chat_history, topic)
+    stream = book_agents.generate_final_world_stream(
+        chat_history, topic, get_synopsis()
+    )
 
     def generate():
         # Send a heartbeat to establish the connection
@@ -512,13 +536,6 @@ def finalize_world_stream():
         # Combine all chunks for the complete content
         complete_content = "".join(collected_content)
 
-        # Clean and save world theme to file once streaming is complete
-        world_theme = complete_content.strip()
-        world_theme = re.sub(r"\n+", "\n", world_theme)
-
-        with open(WORLD_FILE, "w") as f:
-            f.write(world_theme)
-
         # Send completion marker
         yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
@@ -537,6 +554,15 @@ def save_world():
     # Save to file
     with open(WORLD_FILE, "w") as f:
         f.write(world_theme)
+
+    return jsonify({"success": True})
+
+
+@app.route("/delete_world", methods=["POST"])
+def delete_world():
+    """Delete the saved world setting so it can be recreated."""
+    if os.path.exists(WORLD_FILE):
+        os.remove(WORLD_FILE)
 
     return jsonify({"success": True})
 
@@ -580,6 +606,15 @@ def save_characters():
     # Save to file
     with open(CHARACTERS_FILE, "w") as f:
         f.write(characters_content)
+
+    return jsonify({"success": True})
+
+
+@app.route("/delete_characters", methods=["POST"])
+def delete_characters():
+    """Delete the saved characters so they can be recreated."""
+    if os.path.exists(CHARACTERS_FILE):
+        os.remove(CHARACTERS_FILE)
 
     return jsonify({"success": True})
 
@@ -661,6 +696,9 @@ def generate_chapters():
     # Parse the outline into chapters
     chapters = parse_outline_to_chapters(outline_content, num_chapters)
 
+    # Remove files belonging to chapters that no longer exist
+    _cleanup_orphaned_chapter_files(chapters)
+
     # Save chapters to file
     with open(CHAPTERS_JSON_FILE, "w") as f:
         json.dump(chapters, f, indent=2)
@@ -681,11 +719,41 @@ def save_outline():
     num_chapters = int(request.form.get("num_chapters", 10))
     chapters = parse_outline_to_chapters(outline_content, num_chapters)
 
+    # Remove files belonging to chapters that no longer exist
+    _cleanup_orphaned_chapter_files(chapters)
+
     # Save chapters to file
     with open(CHAPTERS_JSON_FILE, "w") as f:
         json.dump(chapters, f, indent=2)
 
     return jsonify({"success": True, "num_chapters": len(chapters)})
+
+
+@app.route("/delete_outline", methods=["POST"])
+def delete_outline():
+    """Delete the saved outline so it can be recreated."""
+    if os.path.exists(OUTLINE_FILE):
+        os.remove(OUTLINE_FILE)
+
+    # Delete the chapter structure and all per-chapter files
+    if os.path.exists(CHAPTERS_JSON_FILE):
+        os.remove(CHAPTERS_JSON_FILE)
+
+    if os.path.exists(CHAPTERS_DIR):
+        for name in os.listdir(CHAPTERS_DIR):
+            path = os.path.join(CHAPTERS_DIR, name)
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+
+    # Remove per-chapter style settings
+    settings = get_settings()
+    if "chapters" in settings:
+        settings.pop("chapters")
+        save_settings(settings)
+
+    return jsonify({"success": True})
 
 
 @app.route("/chapter/<int:chapter_number>", methods=["GET", "POST"])
@@ -1360,11 +1428,14 @@ def action_beats_chat(chapter_number):
         )
 
     action_beats_content = get_action_beats(chapter_number)
+    settings = get_settings()
+    num_beats = settings.get("num_beats", 12)
     return render_template(
         "action_beats_chat.html",
         chapter=chapter_data,
         action_beats_content=action_beats_content,
         chapters=chapters,  # Pass the chapters list
+        num_beats=num_beats,
     )
 
 
@@ -1475,11 +1546,6 @@ def finalize_action_beats_stream(chapter_number):
                 yield f"data: {json.dumps({'content': content})}\n\n"
 
         complete_content = "".join(collected_content)
-        action_beats_path = os.path.join(
-            CHAPTERS_DIR, f"chapter_{chapter_number}_action_beats{TEXT_EXTENSION}"
-        )
-        with open(action_beats_path, "w") as f:
-            f.write(complete_content)
 
         yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
@@ -1496,6 +1562,7 @@ def characters_chat():
     data = request.json
     user_message = data.get("message", "")
     chat_history = data.get("chat_history", [])
+    num_characters = data.get("num_characters", 3)
     world_theme = get_world_theme()
 
     # Ensure we have a world theme
@@ -1510,7 +1577,7 @@ def characters_chat():
 
     # Generate response using the direct chat method
     ai_response = book_agents.generate_chat_response_characters(
-        chat_history, world_theme, user_message
+        chat_history, world_theme, get_synopsis(), user_message, num_characters
     )
 
     # Clean the response
@@ -1525,6 +1592,7 @@ def characters_chat_stream():
     data = request.json
     user_message = data.get("message", "")
     chat_history = data.get("chat_history", [])
+    num_characters = data.get("num_characters", 3)
     world_theme = get_world_theme()
 
     # Ensure we have a world theme
@@ -1539,7 +1607,7 @@ def characters_chat_stream():
 
     # Generate streaming response
     stream = book_agents.generate_chat_response_characters_stream(
-        chat_history, world_theme, user_message
+        chat_history, world_theme, get_synopsis(), user_message, num_characters
     )
 
     def generate():
@@ -1588,7 +1656,7 @@ def finalize_characters_stream():
 
     # Generate the final characters using streaming
     stream = book_agents.generate_final_characters_stream(
-        chat_history, world_theme, num_characters
+        chat_history, world_theme, get_synopsis(), num_characters
     )
 
     def generate():
@@ -1613,12 +1681,6 @@ def finalize_characters_stream():
 
         # Combine all chunks for the complete content
         complete_content = "".join(collected_content)
-
-        # Clean and save characters to file once streaming is complete
-        characters_content = complete_content.strip()
-
-        with open(CHARACTERS_FILE, "w") as f:
-            f.write(characters_content)
 
         # Send completion marker
         yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
@@ -1774,20 +1836,6 @@ def finalize_outline_stream():
         # Combine all chunks for the complete content
         complete_content = "".join(collected_content)
 
-        # Clean and save outline to file once streaming is complete
-        outline_content = complete_content.strip()
-
-        # Save to file
-        with open(OUTLINE_FILE, "w") as f:
-            f.write(outline_content)
-
-        # Try to parse chapters
-        chapters = parse_outline_to_chapters(outline_content, num_chapters)
-
-        # Save structured outline for later use
-        with open(OUTLINE_JSON_FILE, "w") as f:
-            json.dump(chapters, f, indent=2)
-
         # Send completion marker
         yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
@@ -1796,6 +1844,42 @@ def finalize_outline_stream():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+def _cleanup_orphaned_chapter_files(chapters):
+    """Remove per-chapter files, scene dirs, and style settings for chapters that no longer exist."""
+    if not os.path.exists(CHAPTERS_DIR):
+        return
+
+    valid_numbers = {ch["chapter_number"] for ch in chapters}
+
+    # Remove orphaned chapter files and scene directories
+    for name in os.listdir(CHAPTERS_DIR):
+        match = re.match(r"chapter_(\d+)(_editor|_action_beats)?\.txt$", name)
+        if match and int(match.group(1)) not in valid_numbers:
+            path = os.path.join(CHAPTERS_DIR, name)
+            if os.path.isfile(path):
+                os.remove(path)
+            continue
+
+        match = re.match(r"chapter_(\d+)_scenes$", name)
+        if match and int(match.group(1)) not in valid_numbers:
+            path = os.path.join(CHAPTERS_DIR, name)
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+
+    # Remove per-chapter style settings for orphaned chapters
+    settings = get_settings()
+    chapter_settings = settings.get("chapters")
+    if chapter_settings:
+        for key in list(chapter_settings.keys()):
+            if key.isdigit() and int(key) not in valid_numbers:
+                del chapter_settings[key]
+        if chapter_settings:
+            settings["chapters"] = chapter_settings
+        else:
+            settings.pop("chapters", None)
+        save_settings(settings)
 
 
 def parse_outline_to_chapters(outline_content, num_chapters):

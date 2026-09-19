@@ -162,6 +162,319 @@ function loadFormFromLocalStorage(formId, storageKey) {
 
 
 /**
+ * Scroll the page to show the latest chat messages. Only called when the user
+ * sends a message; streaming responses never move the scroll position.
+ */
+function scrollChatToBottom() {
+    window.scrollTo(0, document.body.scrollHeight);
+}
+
+/**
+ * True when a Quill editor is currently visible on the page. The composer is
+ * unpinned while editing content exists so it doesn't float over it.
+ */
+function hasVisibleQuillEditor() {
+    return Array.from(document.querySelectorAll('.quill-editor')).some(function(el) {
+        return el.getClientRects().length > 0;
+    });
+}
+
+/**
+ * Keep the chat composer pinned to the bottom of the viewport on chat pages.
+ * The composer's column is stretched down to the footer so position:sticky
+ * has room to hold the composer at the bottom of the screen through the last
+ * part of the scroll, with no empty gap left above the footer.
+ */
+function positionChatComposer() {
+    const composer = document.querySelector('.chat-composer');
+    if (!composer) {
+        return;
+    }
+    const footer = document.querySelector('footer');
+    const host = composer.closest('#chatContainer') || composer.closest('.chat-col');
+    if (!host || !footer) {
+        return;
+    }
+
+    // When a Quill editor is visible, let the composer scroll in normal flow
+    // so it grows downward on resize instead of floating over the editor.
+    const unpinned = hasVisibleQuillEditor();
+    composer.classList.toggle('composer-in-flow', unpinned);
+    if (unpinned) {
+        if (host.style.minHeight !== '') {
+            host.style.minHeight = '';
+        }
+        return;
+    }
+
+    // On full-width chat pages a visible sibling (e.g. a result container) can
+    // follow the composer; when one is shown, don't stretch so no gap appears
+    // above that content.
+    if (host.id === 'chatContainer') {
+        let node = host;
+        while ((node = node.nextElementSibling) && node !== footer) {
+            if (node.offsetParent !== null || node.getBoundingClientRect().height > 0) {
+                if (host.style.minHeight !== '') {
+                    host.style.minHeight = '';
+                }
+                return;
+            }
+        }
+    }
+
+    // Stretch the host so the composer lands at the bottom of the viewport.
+    // The target is computed from the viewport and the host's document-top,
+    // which are unaffected by stretching, so the value stabilizes after one
+    // application (no feedback loop / runaway page height).
+    const hostTop = host.getBoundingClientRect().top + window.scrollY;
+    const target = Math.max(window.innerHeight - hostTop, 0);
+    const desired = target + 'px';
+    if (host.style.minHeight !== desired) {
+        host.style.minHeight = desired;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', positionChatComposer);
+window.addEventListener('load', positionChatComposer);
+window.addEventListener('resize', positionChatComposer);
+// Result containers are shown/hidden after chat finalization; re-position then.
+new MutationObserver(positionChatComposer).observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['style', 'class']
+});
+
+/**
+ * Save chat history to local storage
+ * @param {string} key - The storage key
+ * @param {Array} history - The chat history array ({role, content} objects)
+ */
+function saveChatHistory(key, history) {
+    try {
+        localStorage.setItem(key, JSON.stringify(history));
+    } catch (e) {
+        console.error('Failed to save chat history:', e);
+        if (e.name === 'QuotaExceededError') {
+            showNotification('Chat history is too large to save. Messages still work, but they may be lost on reload.', 'warning');
+        }
+    }
+}
+
+/**
+ * Load chat history from local storage
+ * @param {string} key - The storage key
+ * @returns {Array} - The saved chat history, or [] if none
+ */
+function loadChatHistory(key) {
+    try {
+        const saved = localStorage.getItem(key);
+        if (!saved) return [];
+        const history = JSON.parse(saved);
+        return Array.isArray(history) ? history : [];
+    } catch (e) {
+        console.error('Failed to load chat history:', e);
+        return [];
+    }
+}
+
+/**
+ * Clear chat history from local storage
+ * @param {string} key - The storage key
+ */
+function clearChatHistory(key) {
+    try {
+        localStorage.removeItem(key);
+    } catch (e) {
+        console.error('Failed to clear chat history:', e);
+    }
+}
+
+/**
+ * Enable or disable chat action buttons based on the current chat state.
+ * @param {Array} chatHistory - The current chat history array
+ * @param {Object} buttons - Selectors: { finalizeBtn, acceptBtn, sendBtn, messageInput, clearBtn }
+ */
+function updateChatButtonStates(chatHistory, buttons) {
+    const hasChat = (chatHistory || []).length > 0;
+
+    const finalizeBtn = $(buttons.finalizeBtn);
+    if (finalizeBtn.length) {
+        finalizeBtn.prop('disabled', !hasChat);
+    }
+
+    const acceptBtn = $(buttons.acceptBtn);
+    if (acceptBtn.length) {
+        acceptBtn.prop('disabled', !hasChat);
+    }
+
+    const clearBtn = $(buttons.clearBtn);
+    if (clearBtn.length) {
+        clearBtn.prop('disabled', !hasChat);
+    }
+
+    const sendBtn = $(buttons.sendBtn);
+    if (sendBtn.length && buttons.messageInput) {
+        const hasText = String($(buttons.messageInput).val() || '').trim().length > 0;
+        sendBtn.prop('disabled', !hasText);
+    }
+}
+
+/**
+ * Enable editing and resubmitting past user chat messages.
+ *
+ * Clicking the pencil button on a user bubble prefills the composer with that
+ * message and flags it as being edited. On resubmit the conversation is
+ * truncated at the edited message (everything after it is discarded), the chat
+ * area is repainted from the truncated history via renderChat, and the edited
+ * message is passed to the page's own reply path via resubmit.
+ *
+ * @param {Object} opts
+ *   container  - selector for the chat messages area (e.g. '#chatMessages')
+ *   composer   - selector for the chat composer; the editing hint is prepended here
+ *   input      - selector for the composer textarea
+ *   getHistory - () => current chat history array
+ *   setHistory - (Array) => assign the new chat history
+ *   renderChat - () => repaint the chat area from the current history
+ *   resubmit   - (message) => send the edited message through the page's reply path
+ * @returns {Object} { active, cancel, submit, setBusy }
+ */
+function setupChatEditing(opts) {
+    const state = {
+        active: false,
+        userIndex: -1,
+        busy: false
+    };
+
+    const hint = $('<div>').addClass('edit-chat-hint d-none').append(
+        $('<span>').html('<i class="bi bi-pencil me-1"></i>Editing this message.'),
+        $('<button>').attr('type', 'button')
+            .addClass('btn btn-link btn-sm p-0 edit-chat-cancel')
+            .text('Cancel')
+    );
+    $(opts.composer).prepend(hint);
+
+    const historyUserIndexes = function() {
+        const indexes = [];
+        const history = opts.getHistory();
+        for (let i = 0; i < history.length; i++) {
+            if (history[i] && history[i].role === 'user') {
+                indexes.push(i);
+            }
+        }
+        return indexes;
+    };
+
+    const userBubbles = function() {
+        return $(opts.container).find('.user-msg');
+    };
+
+    const start = function(userIndex, message) {
+        state.active = true;
+        state.userIndex = userIndex;
+        $(opts.input).val(message).trigger('input').focus();
+        userBubbles().removeClass('editing-msg');
+        userBubbles().eq(userIndex).addClass('editing-msg');
+        hint.removeClass('d-none');
+    };
+
+    const cancel = function() {
+        state.active = false;
+        state.userIndex = -1;
+        $(opts.input).val('').trigger('input');
+        userBubbles().removeClass('editing-msg');
+        hint.addClass('d-none');
+    };
+
+    const submit = function(message) {
+        const userIndexes = historyUserIndexes();
+        if (state.userIndex < 0 || state.userIndex >= userIndexes.length) {
+            cancel();
+            return;
+        }
+        const truncated = opts.getHistory()
+            .slice(0, userIndexes[state.userIndex])
+            .concat([{ role: 'user', content: message }]);
+        state.active = false;
+        state.userIndex = -1;
+        $(opts.input).val('').trigger('input');
+        hint.addClass('d-none');
+        opts.setHistory(truncated);
+        if (opts.renderChat) {
+            opts.renderChat();
+        }
+        if (opts.resubmit) {
+            opts.resubmit(message);
+        }
+    };
+
+    $(opts.container).on('click', '.msg-edit-btn', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (state.busy || state.active) {
+            return;
+        }
+        const userIndexes = historyUserIndexes();
+        const bubbleIndex = userBubbles().index($(this).closest('.user-msg'));
+        if (bubbleIndex < 0 || bubbleIndex >= userIndexes.length) {
+            return;
+        }
+        start(bubbleIndex, opts.getHistory()[userIndexes[bubbleIndex]].content);
+    });
+
+    hint.on('click', '.edit-chat-cancel', cancel);
+
+    $(opts.input).on('keydown', function(e) {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            cancel();
+        }
+    });
+
+    return {
+        active: function() { return state.active; },
+        cancel: cancel,
+        submit: submit,
+        setBusy: function(busy) { state.busy = busy; }
+    };
+}
+
+/**
+ * Show the shared confirmation modal and run the callback if confirmed.
+ * @param {Object} config - { title, message, confirmText }
+ * @param {Function} onConfirm - Runs after the user confirms.
+ */
+function confirmAction(config, onConfirm) {
+    const modalEl = document.getElementById('confirmModal');
+    const confirmBtn = document.getElementById('confirmActionBtn');
+    if (!modalEl || !confirmBtn || typeof bootstrap === 'undefined') {
+        onConfirm();
+        return;
+    }
+    document.getElementById('confirmModalLabel').textContent = config.title || 'Confirm';
+    document.getElementById('confirmModalBody').textContent = config.message || '';
+    confirmBtn.textContent = config.confirmText || 'Confirm';
+    const bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    confirmBtn.onclick = function() {
+        bsModal.hide();
+        onConfirm();
+    };
+    bsModal.show();
+}
+
+/**
+ * Confirm clearing the chat history.
+ * @param {Function} onConfirm - Runs after the user confirms.
+ */
+function confirmClearChat(onConfirm) {
+    confirmAction({
+        title: 'Clear Chat',
+        message: 'Clear the chat history? This cannot be undone.',
+        confirmText: 'Clear Chat'
+    }, onConfirm);
+}
+
+/**
  * Handle chapter navigation pagination
  */
 function handleChapterPagination() {
@@ -379,3 +692,31 @@ function showDualContentModal(title, tab1Title, tab1Content, tab2Title, tab2Cont
 
     bsModal.show();
 }
+
+/**
+ * Light/dark theme toggle. The current data-bs-theme is applied to <html>
+ * early in base.html; this keeps it in sync with user interaction.
+ */
+(function themeToggle() {
+    const button = document.getElementById('themeToggle');
+    if (!button) {
+        return;
+    }
+
+    const updateIcon = () => {
+        const isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+        button.innerHTML = isDark
+            ? '<i class="bi bi-sun-fill"></i>'
+            : '<i class="bi bi-moon-stars-fill"></i>';
+    };
+
+    button.addEventListener('click', () => {
+        const isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+        const next = isDark ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-bs-theme', next);
+        localStorage.setItem('theme', next);
+        updateIcon();
+    });
+
+    updateIcon();
+})();

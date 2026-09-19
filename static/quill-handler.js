@@ -648,11 +648,14 @@ document.addEventListener('DOMContentLoaded', () => {
             return '';
         }
 
-        updateEditorWithHtml(html, user = "api") {            
+        updateEditorWithHtml(html, user = "api") {
+            const editor = this.quill.container.querySelector('.ql-editor');
+            const savedScrollTop = editor.scrollTop;
+
             this.quill.clipboard.dangerouslyPasteHTML(html);
 
-            // Scroll to bottom to follow updates
-            this.quill.setSelection(this.quill.getLength(), 0, user);
+            // Keep the editor's scroll position so streamed updates never move it
+            editor.scrollTop = savedScrollTop;
 
             // Make sure to update the hidden input as well
             this.updateHiddenInput();

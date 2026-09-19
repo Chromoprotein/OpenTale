@@ -3,120 +3,123 @@
 
 {% block title %}OpenTale - Character Creation{% endblock %}
 
+{% block navbar_title %}Character Development Chat{% endblock %}
+
 {% block content %}
 <div class="row">
+    {% if not world_theme %}
     <div class="col-12 mb-4">
-        <div class="card">
-            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-                <h2 class="h4 mb-0">Character Creation</h2>
-                <div>
-                    <a href="/world" class="btn btn-light btn-sm">&laquo; Back to World</a>
-                    <a href="/outline" class="btn btn-light btn-sm">Next: Outline &raquo;</a>
-                </div>
-            </div>
-            <div class="card-body">
-                {% if not world_theme %}
-                <div class="alert alert-warning">
-                    <strong>Warning:</strong> You need to create a world setting first. <a href="/world" class="alert-link">Go to World Creation</a>.
-                </div>
-                {% else %}
-                <div class="mb-4">
-                    <h3 class="h5">World Setting Context:</h3>
-                    <div class="card bg-light">
-                        <div class="card-body">
-                            <p class="mb-0">{{ world_theme[:200] }}{% if world_theme|length > 200 %}...{% endif %}</p>
-                            <button class="btn btn-sm btn-outline-secondary mt-2" type="button" data-bs-toggle="collapse" data-bs-target="#fullWorldSetting">
-                                Show Full World Setting
-                            </button>
-                            <div class="collapse mt-2" id="fullWorldSetting">
-                                <div class="card card-body">
-                                    {{ world_theme }}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <p class="lead">Chat with the AI to develop your book's characters. Describe your ideas for characters, answer questions, and explore different personality types together.</p>
-                
-                <div class="mb-3">
-                    <label for="numCharacters" class="form-label">How many characters would you like to create?</label>
-                    <input type="number" class="form-control" id="numCharacters" name="num_characters" min="1" max="10" value="{{ num_characters }}">
-                </div>
-                {% endif %}
-            </div>
+        <div class="alert alert-warning">
+            <strong>Warning:</strong> You need to create a world setting first. <a href="/world" class="alert-link">Go to World Creation</a>.
         </div>
     </div>
+    {% endif %}
     
     {% if world_theme %}
     <!-- Chat interface -->
     <div class="col-12 mb-4" id="chatContainer">
-        <div class="card">
-            <div class="card-header bg-primary text-white">
-                <h3 class="h5 mb-0">Character Development Chat</h3>
+        {% if synopsis or world_theme %}
+        <div class="accordion mb-4" id="charactersContextAccordion" style="max-width: 80%">
+            {% if synopsis %}
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#fullSynopsis">
+                        Story Synopsis Context
+                    </button>
+                </h2>
+                <div id="fullSynopsis" class="accordion-collapse collapse" data-bs-parent="#charactersContextAccordion">
+                    <div class="accordion-body">
+                        <p class="context-text text-muted mb-0">{{ synopsis }}</p>
+                    </div>
+                </div>
             </div>
-            <div class="card-body">
-                <div id="chatMessages" class="p-3 mb-3 border rounded" style="height: 400px; overflow-y: auto;">
-                    <!-- Chat messages will appear here -->
-                    {% if not characters %}
-                    <div class="text-center p-3">
-                        <p>Tell me about the characters you'd like to create for your book. What kind of protagonists, antagonists, or supporting characters are you thinking of?</p>
-                    </div>
-                    {% endif %}
-                </div>
-                
-                <div class="d-flex">
-                    <input type="text" id="userMessage" class="form-control me-2" placeholder="Type your ideas about characters you want to create...">
-                    <button id="sendMessageBtn" class="btn btn-primary">Send</button>
-                </div>
-                
-                <div class="mt-3">
-                    <button id="finalizeChatBtn" class="btn btn-success">Finalize Characters</button>
-                </div>
-                
-                <div id="chatTypingIndicator" class="alert alert-info mt-3 d-none">
-                    <div class="d-flex align-items-center">
-                        <div class="spinner-border spinner-border-sm me-2" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <div>AI is thinking...</div>
+            {% endif %}
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#fullWorldSetting">
+                        World Setting Context
+                    </button>
+                </h2>
+                <div id="fullWorldSetting" class="accordion-collapse collapse" data-bs-parent="#charactersContextAccordion">
+                    <div class="accordion-body">
+                        <p class="context-text text-muted mb-0">{{ world_theme }}</p>
                     </div>
                 </div>
+            </div>
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#numCharactersCollapse">
+                        How many characters would you like to create? <span class="badge bg-secondary ms-2" id="numCharactersBadge" style="font-size: 0.60em;">{{ num_characters }}</span>
+                    </button>
+                </h2>
+                <div id="numCharactersCollapse" class="accordion-collapse collapse" data-bs-parent="#charactersContextAccordion">
+                    <div class="accordion-body">
+                        <label for="numCharacters" class="form-label visually-hidden">How many characters would you like to create?</label>
+                        <input type="number" class="form-control" id="numCharacters" name="num_characters" min="1" max="10" value="{{ num_characters }}" style="max-width: 200px">
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        <div id="chatMessages">
+            <!-- Chat messages will appear here -->
+            <div class="mb-3">
+                <div class="d-inline-block bg-body-tertiary p-2 rounded-3" style="max-width: 80%">
+                    <p class="mb-0">Tell me about the characters you'd like to create for your book. What kind of protagonists, antagonists, or supporting characters are you thinking of?</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="chat-composer">
+            <div id="chatTypingIndicator" class="alert alert-info p-2 mb-2 d-none">
+            <div class="d-flex align-items-center">
+                <div class="spinner-border spinner-border-sm me-2" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <div>AI is thinking...</div>
+            </div>
+        </div>
+            <div class="d-flex align-items-end">
+                <textarea id="userMessage" class="form-control me-2" rows="3" placeholder="Type your ideas about characters you want to create..."></textarea>
+                <button id="sendMessageBtn" class="btn btn-primary" disabled>Send</button>
+            </div>
+            
+            <div class="mt-3">
+                <button id="finalizeChatBtn" class="btn btn-success" disabled>Finalize Characters</button>
+                <button id="useDraftBtn" class="btn btn-outline-primary ms-2" disabled>Use Draft in Editor</button>
+                <button id="clearChatBtn" class="btn btn-outline-secondary ms-2" disabled><i class="bi bi-trash me-1"></i>Clear Chat</button>
             </div>
         </div>
     </div>
     {% endif %}
     
     <div class="col-12" id="charactersResultContainer" {% if not characters %}style="display: none;"{% endif %}>
-        <div class="card">
-            <div class="card-header bg-success text-white">
-                <h3 class="h5 mb-0">Your Characters</h3>
+        <form id="saveCharactersForm" action="/save_characters" method="post">
+            <div class="mb-3">
+                <label for="charactersContent" class="form-label">Edit your characters if needed:</label>
+                {{ quill_editor('charactersEditor', 'characters', characters) }}
             </div>
-            <div class="card-body">
-                <form id="saveCharactersForm" action="/save_characters" method="post">
-                    <div class="mb-3">
-                        <label for="charactersContent" class="form-label">Edit your characters if needed:</label>
-                        {{ quill_editor('charactersEditor', 'characters', characters) }}
-                    </div>
-                    <div class="d-flex justify-content-between">
-                        <button type="submit" class="btn btn-success" id="saveCharactersBtn">Save Changes</button>
-                        <a href="/outline" class="btn btn-primary">Continue to Outline</a>
-                    </div>
-                </form>
-                
-                <div id="savingIndicator" class="alert alert-info mt-3 d-none">
-                    <div class="d-flex align-items-center">
-                        <div class="spinner-border spinner-border-sm me-2" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <div>Saving changes...</div>
-                    </div>
+            <div class="d-flex justify-content-between">
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-primary" id="acceptCharactersBtn" disabled><i class="bi bi-check-lg me-1"></i>Accept &amp; Clear Chat</button>
+                    <button type="submit" class="btn btn-success" id="saveCharactersBtn">Save Changes</button>
+                    <button type="button" class="btn btn-outline-danger" id="deleteCharactersBtn"><i class="bi bi-trash3 me-1"></i>Delete</button>
                 </div>
-                
-                <div id="savedIndicator" class="alert alert-success mt-3 d-none">
-                    <div>Characters saved successfully!</div>
-                </div>
+                <a href="/outline" class="btn btn-primary">Continue to Outline</a>
             </div>
+        </form>
+        
+        <div id="savingIndicator" class="alert alert-info mt-3 d-none">
+            <div class="d-flex align-items-center">
+                <div class="spinner-border spinner-border-sm me-2" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <div>Saving changes...</div>
+            </div>
+        </div>
+        
+        <div id="savedIndicator" class="alert alert-success mt-3 d-none">
+            <div>Characters saved successfully!</div>
         </div>
     </div>
 </div>
@@ -125,7 +128,7 @@
 $(document).ready(function() {
     // Save numCharacters on change
     $('#numCharacters').on('change', function() {
-        const numCharacters = $(this).val();
+        const numCharacters = $(this).val() || 0;
         $.ajax({
             type: 'POST',
             url: '/save_setting',
@@ -136,9 +139,68 @@ $(document).ready(function() {
             }
         });
     });
+
+    // Update the badge immediately as the user types
+    $('#numCharacters').on('input', function() {
+        $('#numCharactersBadge').text($(this).val() || 0);
+    });
     
-    // Chat history
-    let chatHistory = [];
+    // Chat history (persisted in localStorage)
+    const CHAT_KEY = 'opentale_chat_characters';
+    let chatHistory = loadChatHistory(CHAT_KEY) || [];
+    let lastDraftText = null;
+    const chatButtons = {
+        finalizeBtn: '#finalizeChatBtn',
+        acceptBtn: '#acceptCharactersBtn',
+        sendBtn: '#sendMessageBtn',
+        messageInput: '#userMessage',
+        clearBtn: '#clearChatBtn'
+    };
+
+    // Restore previous chat messages
+    if (chatHistory.length > 0) {
+        $('#chatMessages').empty();
+        chatHistory.forEach(msg => {
+            addMessageToChat(msg.role, msg.content);
+        });
+    }
+
+    updateChatButtonStates(chatHistory, chatButtons);
+
+    // Message editing & resubmission
+    function renderChat() {
+        $('#chatMessages').empty();
+        chatHistory.forEach(msg => {
+            addMessageToChat(msg.role, msg.content);
+        });
+    }
+
+    const chatEditing = setupChatEditing({
+        container: '#chatMessages',
+        composer: '.chat-composer',
+        input: '#userMessage',
+        getHistory: function() { return chatHistory; },
+        setHistory: function(history) { chatHistory = history; },
+        renderChat: renderChat,
+        resubmit: streamAiResponse
+    });
+
+    // Clear chat
+    $('#clearChatBtn').click(function() {
+        confirmClearChat(function() {
+            chatEditing.cancel();
+            chatHistory = [];
+            lastDraftText = null;
+            $('#useDraftBtn').prop('disabled', true);
+            clearChatHistory(CHAT_KEY);
+            $('#chatMessages').empty();
+            if (!$('#charactersEditor-hidden').val().trim()) {
+                $('#chatMessages').html('<div class="mb-3"><div class="d-inline-block bg-body-tertiary p-2 rounded-3" style="max-width: 80%"><p class="mb-0">Tell me about the characters you\'d like to create for your book. What kind of protagonists, antagonists, or supporting characters are you thinking of?</p></div></div>');
+            }
+            $('#chatTypingIndicator').addClass('d-none');
+            updateChatButtonStates(chatHistory, chatButtons);
+        });
+    });
     
     // Send user message
     $('#sendMessageBtn').click(function() {
@@ -146,45 +208,67 @@ $(document).ready(function() {
     });
     
     // Also send message when user presses Enter
-    $('#userMessage').keypress(function(e) {
-        if (e.which === 13) {
-            sendUserMessage();
+    $('#userMessage').keydown(function(e) {
+        if (e.which === 13 && !e.shiftKey) {
             e.preventDefault();
+            sendUserMessage();
         }
+    });
+
+    // Update the Send button as the user types
+    $('#userMessage').on('input', function() {
+        updateChatButtonStates(chatHistory, chatButtons);
     });
     
     function sendUserMessage() {
         const message = $('#userMessage').val().trim();
         if (!message) return;
-        
+
+        if (chatEditing.active()) {
+            lastDraftText = null;
+            $('#useDraftBtn').prop('disabled', true);
+            chatEditing.submit(message);
+            saveChatHistory(CHAT_KEY, chatHistory);
+            updateChatButtonStates(chatHistory, chatButtons);
+            return;
+        }
+
         // Add user message to chat
         addMessageToChat('user', message);
         
         // Clear input field
         $('#userMessage').val('');
         
-        // Show AI is thinking
-        $('#chatTypingIndicator').removeClass('d-none');
-        
         // Update chat history
         chatHistory.push({role: 'user', content: message});
+        saveChatHistory(CHAT_KEY, chatHistory);
+        updateChatButtonStates(chatHistory, chatButtons);
         
+        streamAiResponse(message);
+    }
+
+    function streamAiResponse(message) {
+        // Show AI is thinking
+        $('#chatTypingIndicator').removeClass('d-none');
+        chatEditing.setBusy(true);
+
         // Create a message div for the AI response
         const messageDiv = $('<div>').addClass('mb-3 text-start');
         const messageBubble = $('<div>')
-            .addClass('d-inline-block bg-light p-2 rounded-3')
+            .addClass('d-inline-block bg-body-tertiary p-2 rounded-3')
             .css('max-width', '80%')
             .html('<span class="typing-cursor">▌</span>');
         messageDiv.append(messageBubble);
         $('#chatMessages').append(messageDiv);
         
         // Scroll to bottom
-        $('#chatMessages').scrollTop($('#chatMessages')[0].scrollHeight);
+        scrollChatToBottom();
         
         // Prepare request data
         const requestData = {
             message: message,
-            chat_history: chatHistory.slice(0, -1) // Exclude current message
+            chat_history: chatHistory.slice(0, -1), // Exclude current message
+            num_characters: $('#numCharacters').val()
         };
         
         // Initialize response content
@@ -207,8 +291,10 @@ $(document).ready(function() {
                     if (done) {
                         // End of stream
                         $('#chatTypingIndicator').addClass('d-none');
+                        chatEditing.setBusy(false);
                         // Update chat history with complete response
                         chatHistory.push({role: 'ai', content: responseContent});
+                        saveChatHistory(CHAT_KEY, chatHistory);
                         // Remove typing cursor
                         messageBubble.find('.typing-cursor').remove();
                         return;
@@ -234,9 +320,6 @@ $(document).ready(function() {
                                 
                                 // Update the message bubble with formatted content
                                 messageBubble.html(formatMessage(responseContent) + '<span class="typing-cursor">▌</span>');
-                                
-                                // Scroll to bottom as content arrives
-                                $('#chatMessages').scrollTop($('#chatMessages')[0].scrollHeight);
                             } catch (e) {
                                 console.error('Error parsing JSON:', e, jsonData);
                             }
@@ -253,22 +336,30 @@ $(document).ready(function() {
         }).catch(error => {
             console.error('Fetch error:', error);
             $('#chatTypingIndicator').addClass('d-none');
+            chatEditing.setBusy(false);
             addMessageToChat('system', 'Error streaming response. Please try again.');
         });
     }
     
     // Finalize characters
     $('#finalizeChatBtn').click(function() {
+        chatEditing.cancel();
         // Show AI is thinking
         $('#chatTypingIndicator').removeClass('d-none');
         
         // Disable button
         $(this).prop('disabled', true);
-        
-        // Show result container
-        $('#charactersResultContainer').show();
 
-        let charactersText = '';
+        // Create a chat bubble to stream the draft into
+        const draftDiv = $('<div>').addClass('mb-3 text-start');
+        const draftBubble = $('<div>')
+            .addClass('d-inline-block bg-body-tertiary p-2 rounded-3')
+            .css('max-width', '80%')
+            .html('<span class="typing-cursor">▌</span>');
+        draftDiv.append(draftBubble);
+        $('#chatMessages').append(draftDiv);
+
+        let draftText = '';
                 
         // Make a streaming request for the final characters
         fetch('/finalize_characters_stream', {
@@ -291,7 +382,15 @@ $(document).ready(function() {
                         // End of stream
                         $('#chatTypingIndicator').addClass('d-none');
                         $('#finalizeChatBtn').prop('disabled', false);
-                        $('#chatContainer').hide();
+                        // Remove typing cursor
+                        draftBubble.find('.typing-cursor').remove();
+                        // Save the draft to history and enable moving it to the editor
+                        if (draftText) {
+                            lastDraftText = draftText;
+                            chatHistory.push({role: 'ai', content: draftText});
+                            saveChatHistory(CHAT_KEY, chatHistory);
+                            $('#useDraftBtn').prop('disabled', false);
+                        }
                         return;
                     }
                     
@@ -310,14 +409,11 @@ $(document).ready(function() {
                                     return;
                                 }
                                 
-                                // Append new content
-                                charactersText += data.content;
+                                // Append new content to the draft
+                                draftText += data.content;
                                 
-                                // Update the Quill editor with all content so far
-                                const editorElement = document.getElementById('charactersEditor');
-                                if (editorElement && editorElement.quillHandler) {
-                                    editorElement.quillHandler.updateEditorWithMarkdown(charactersText);
-                                }
+                                // Stream the draft into the chat bubble
+                                draftBubble.html(formatMessage(draftText) + '<span class="typing-cursor">▌</span>');
                             } catch (e) {
                                 console.error('Error parsing JSON:', e, jsonData);
                             }
@@ -338,20 +434,69 @@ $(document).ready(function() {
             alert('Error finalizing characters. Please try again.');
         });
     });
+
+    // Use the latest finalized draft in the editor
+    $('#useDraftBtn').click(function() {
+        if (!lastDraftText) return;
+        const btn = $(this);
+        btn.prop('disabled', true);
+        $.post('/save_characters', { characters: lastDraftText })
+            .done(function() {
+                const editorElement = document.getElementById('charactersEditor');
+                if (editorElement && editorElement.quillHandler) {
+                    editorElement.quillHandler.updateEditorWithMarkdown(lastDraftText);
+                }
+                $('#charactersResultContainer').show();
+            })
+            .fail(function() {
+                alert('Error saving the characters draft. Please try again.');
+            })
+            .always(function() {
+                btn.prop('disabled', false);
+            });
+    });
+    
+    // Accept characters and clear the chat
+    $('#acceptCharactersBtn').click(function() {
+        chatHistory = [];
+        clearChatHistory(CHAT_KEY);
+        $('#chatMessages').empty();
+        lastDraftText = null;
+        $('#useDraftBtn').prop('disabled', true);
+        updateChatButtonStates(chatHistory, chatButtons);
+    });
+    
+    // Delete characters
+    $('#deleteCharactersBtn').click(function() {
+        confirmAction({ title: 'Delete Characters', message: 'Delete the characters? This cannot be undone.', confirmText: 'Delete' }, function() {
+            $.post('/delete_characters').done(function() {
+                clearChatHistory(CHAT_KEY);
+                window.location.reload();
+            }).fail(function() {
+                alert('Error deleting characters. Please try again.');
+            });
+        });
+    });
     
     // Add message to chat display
     function addMessageToChat(sender, message) {
         const messageDiv = $('<div>').addClass('mb-3');
         
         if (sender === 'user') {
-            messageDiv.addClass('text-end');
-            const messageBubble = $('<div>').addClass('d-inline-block bg-primary text-white p-2 rounded-3')
+            messageDiv.addClass('text-end user-msg');
+            const messageBubble = $('<div>').addClass('d-inline-block bg-primary text-white p-2 rounded-3 msg-bubble')
                                             .css('max-width', '80%')
                                             .html(formatMessage(message));
             messageDiv.append(messageBubble);
+            const editBtn = $('<button>')
+                .attr('type', 'button')
+                .addClass('btn btn-link btn-sm p-0 ms-1 msg-edit-btn')
+                .attr('title', 'Edit message')
+                .html('<i class="bi bi-pencil"></i>');
+            messageDiv.append(editBtn);
         } else if (sender === 'ai') {
             messageDiv.addClass('text-start');
-            const messageBubble = $('<div>').addClass('d-inline-block bg-light p-2 rounded-3')
+            const messageBubble = $('<div>').addClass('d-inline-block bg-body-tertiary p-2 rounded-3')
                                             .css('max-width', '80%')
                                             .html(formatMessage(message));
             messageDiv.append(messageBubble);
@@ -364,9 +509,6 @@ $(document).ready(function() {
         }
         
         $('#chatMessages').append(messageDiv);
-        
-        // Scroll to bottom
-        $('#chatMessages').scrollTop($('#chatMessages')[0].scrollHeight);
     }
     
     // Format message with line breaks
