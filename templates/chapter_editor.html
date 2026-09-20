@@ -285,10 +285,19 @@ $(document).ready(function() {
     // The WIP can still be deleted if a saved WIP existed when the page loaded.
     const hadSavedWip = {{ 'true' if has_review else 'false' }};
     function updateReviewSaveButtons() {
-        const hasContent = ($('#chapterContentEditor-hidden').val() || '').trim().length > 0;
+        const reviewEditor = document.getElementById('chapterContentEditor');
+        const quill = reviewEditor ? reviewEditor.quill : null;
+        const hasContent = quill
+            ? quill.getText().trim().length > 0
+            : ($('#chapterContentEditor-hidden').val() || '').trim().length > 0;
         $('#saveChapterBtn').prop('disabled', !hasContent);
         $('#overwriteChapterBtn').prop('disabled', !hasContent);
         $('#deleteWipBtn').prop('disabled', !hasContent && !hadSavedWip);
+        // WIP (draft in editor) is only a valid AI source when the editor has content
+        $('#ctxWip').prop('disabled', !hasContent);
+        if (!hasContent && $('#ctxWip').prop('checked')) {
+            $('#ctxCurrent').prop('checked', true);
+        }
     }
 
     // The Quill editor initializes after this ready block (quill-handler.js runs

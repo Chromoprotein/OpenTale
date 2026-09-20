@@ -189,12 +189,14 @@ registerCustomQuillFeatures();
                     this.initiateLlm();
                 });
             }
+            this.aiButton = aiButton;
 
             this.loadInitialContent();
             this.loadFontSize();
             this.initializeStats();
             this.updateHiddenInput(); // Set initial state
             this.updateStats();
+            this.updateAiButtonState();
         }
 
         debounce(func, wait) {
@@ -230,6 +232,7 @@ registerCustomQuillFeatures();
 
             // Add text-change event listener
             quill.on('text-change', (delta, oldDelta, source) => {
+                this.updateAiButtonState();
                 if (source === Quill.sources.USER) {
                     this.updateHiddenInput();
                     this.debouncedUpdateStats();
@@ -400,6 +403,14 @@ registerCustomQuillFeatures();
                 passage,
                 range: { index: ctxIndex, length: isSelection ? range.length : 0 }
             });
+        }
+
+        updateAiButtonState() {
+            if (!this.aiButton) {
+                return;
+            }
+            const isEmpty = this.quill.getText().trim() === '';
+            this.aiButton.disabled = isEmpty;
         }
 
         openAiModal({ mode, passage, range }) {
