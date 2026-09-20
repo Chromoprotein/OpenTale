@@ -187,6 +187,9 @@ body {
 .modal-body-scrollable pre {
     max-height: 100%; /* Ensure pre tag doesn't overflow its parent */
     overflow-y: auto; /* Add scrollbar to pre tag if content overflows */
+    overflow-x: hidden; /* Prevent horizontal scrolling */
+    white-space: pre-wrap; /* Wrap long lines */
+    word-wrap: break-word; /* Break words that exceed the container width */
     user-select: text; /* Ensure text is selectable */
 }
 

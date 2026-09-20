@@ -3,14 +3,11 @@
 
 {% block title %}OpenTale - Chapter {{ chapter.chapter_number }}{% endblock %}
 
-{% block navbar_title %}Chapter Development Chat{% endblock %}
+{% block navbar_title %}Chapter {{ chapter.chapter_number }}: {{ chapter.title }}{% endblock %}
 
 {% block content %}
 <div class="row">
     <div class="col-12 mb-4">
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-            <h2 class="h4 mb-0">Chapter {{ chapter.chapter_number }}: {{ chapter.title }}</h2>
-        </div>
         <div class="row mb-2">
             <div class="col-md-8 chat-col">
                         <div class="accordion mb-4" id="chapterAccordion">
@@ -100,6 +97,7 @@
                                                     <div class="d-flex">
                                                         <button type="submit" class="btn btn-success btn-sm" id="saveActionBeatsBtn">Save Action Beats</button>
                                                         <a href="/action_beats_chat/{{ chapter.chapter_number }}" class="btn btn-warning btn-sm ms-2">Go To Action Beats Editor</a>
+                                                        <button type="button" class="btn btn-outline-danger btn-sm ms-2" id="deleteActionBeatsBtn"><i class="bi bi-trash3 me-1"></i>Delete</button>
                                                     </div>
                                                 </form>
 
@@ -123,32 +121,15 @@
                                 </div>
                             </div>
                         </div>
-                        
-<!-- Chat interface for chapter development -->
-                         <div id="chatMessages">
-                             <div class="mb-3">
-                                 <div class="d-inline-block bg-body-tertiary p-2 rounded-3" style="max-width: 80%">
-                                     <p class="mb-0">Share additional details or ask questions about how to develop this chapter. I'll use your input along with the chapter outline to create the content.</p>
-                                 </div>
-                             </div>
-</div>
-                          
-                          <div class="chat-composer">
-                             <div class="d-flex align-items-end">
-                                 <textarea id="userMessage" class="form-control me-2" rows="3" placeholder="Type your ideas or questions about this chapter..."></textarea>
-                                 <button id="sendMessageBtn" class="btn btn-primary" disabled>Send</button>
-                             </div>
-                             <div class="mt-3 d-flex">
-                                 {% if chapter_content %}
-                                 <button type="button" class="btn btn-warning me-2" id="regenerateChapterBtn">Regenerate Chapter</button>
-                                 <button type="button" class="btn btn-info" id="showPromptBtn">Show Regenerate Chapter Prompt</button>
-                                 {% else %}
-                                 <button type="button" class="btn btn-success me-2" id="generateChapterBtn">Generate Chapter</button>
-<button type="button" class="btn btn-info" id="showPromptBtn">Show Generate Chapter Prompt</button>
-                                {% endif %}
-                                <button type="button" class="btn btn-outline-secondary ms-2" id="clearChatBtn"><i class="bi bi-trash me-1"></i>Clear Chat</button>
-                            </div>
-                         </div>
+                        <div class="d-flex">
+                            {% if chapter_content %}
+                            <button type="button" class="btn btn-warning me-2" id="regenerateChapterBtn">Regenerate Chapter</button>
+                            <button type="button" class="btn btn-info" id="showPromptBtn">Show Regenerate Chapter Prompt</button>
+                            {% else %}
+                            <button type="button" class="btn btn-success me-2" id="generateChapterBtn">Generate Chapter</button>
+                            <button type="button" class="btn btn-info" id="showPromptBtn">Show Generate Chapter Prompt</button>
+                            {% endif %}
+                        </div>
                     </div>
                     <div class="col-md-4">
                         <div class="alert alert-info d-none">
@@ -173,6 +154,7 @@
                             <span class="visually-hidden">Loading...</span>
                         </div>
                         <div>Generating chapter content... This may take several minutes.</div>
+                        <button type="button" class="btn btn-outline-danger btn-sm ms-auto" id="stopStreamBtn"><i class="bi bi-stop-fill me-1"></i>Stop</button>
                     </div>
                 </div>
                 
@@ -217,138 +199,17 @@
 
 <script>
 $(document).ready(function() {
-    // Chat history (persisted in localStorage)
-    const CHAT_KEY = 'opentale_chat_chapter_{{ chapter.chapter_number }}';
-    let chatHistory = loadChatHistory(CHAT_KEY) || [];
-    let chatReplyTimer = null;
-    const chatButtons = {
-        sendBtn: '#sendMessageBtn',
-        messageInput: '#userMessage',
-        clearBtn: '#clearChatBtn'
-    };
-
-    // Restore previous chat messages
-    if (chatHistory.length > 0) {
-        $('#chatMessages').empty();
-        chatHistory.forEach(msg => {
-            addMessageToChat(msg.role, msg.content);
-        });
-    }
-
-    updateChatButtonStates(chatHistory, chatButtons);
-
-    // Message editing & resubmission
-    function renderChat() {
-        $('#chatMessages').empty();
-        chatHistory.forEach(msg => {
-            addMessageToChat(msg.role, msg.content);
-        });
-    }
-
-    const chatEditing = setupChatEditing({
-        container: '#chatMessages',
-        composer: '.chat-composer',
-        input: '#userMessage',
-        getHistory: function() { return chatHistory; },
-        setHistory: function(history) { chatHistory = history; },
-        renderChat: renderChat,
-        resubmit: queueCannedReply
-    });
-
-    // Clear chat
-    $('#clearChatBtn').click(function() {
-        confirmClearChat(function() {
-            chatEditing.cancel();
-            chatHistory = [];
-            clearChatHistory(CHAT_KEY);
-            $('#chatMessages').empty();
-            $('#chatMessages').html('<div class="mb-3"><div class="d-inline-block bg-body-tertiary p-2 rounded-3" style="max-width: 80%"><p class="mb-0">Share additional details or ask questions about how to develop this chapter. I\'ll use your input along with the chapter outline to create the content.</p></div></div>');
-            updateChatButtonStates(chatHistory, chatButtons);
-        });
-    });
-    
-    // Send user message
-    $('#sendMessageBtn').click(function() {
-        sendUserMessage();
-    });
-    
-    // Also send message when user presses Enter
-    $('#userMessage').keydown(function(e) {
-        if (e.which === 13 && !e.shiftKey) {
-            e.preventDefault();
-            sendUserMessage();
-        }
-    });
-
-    // Update the Send button as the user types
-    $('#userMessage').on('input', function() {
-        updateChatButtonStates(chatHistory, chatButtons);
-    });
-    
-    function sendUserMessage() {
-        const message = $('#userMessage').val().trim();
-        if (!message) return;
-
-        if (chatEditing.active()) {
-            clearTimeout(chatReplyTimer);
-            chatEditing.setBusy(false);
-            chatEditing.submit(message);
-            return;
-        }
-        
-        // Add user message to chat
-        addMessageToChat('user', message);
-        
-        // Clear input field
-        $('#userMessage').val('');
-        
-        // Scroll to bottom to show the just-sent message
-        scrollChatToBottom();
-        
-        // Update chat history
-        chatHistory.push({role: 'user', content: message});
-        saveChatHistory(CHAT_KEY, chatHistory);
-        updateChatButtonStates(chatHistory, chatButtons);
-        
-        queueCannedReply();
-    }
-    
-    // For simplicity, we'll provide a standard response about using the input for chapter generation
-    function queueCannedReply() {
-        chatEditing.setBusy(true);
-        chatReplyTimer = setTimeout(function() {
-            chatEditing.setBusy(false);
-            const response = "Thanks for the input! I'll incorporate these details when you generate the chapter. Feel free to add more specific requirements or ask questions about the chapter development.";
-            addMessageToChat('ai', response);
-            // Add to chat history
-            chatHistory.push({role: 'ai', content: response});
-            saveChatHistory(CHAT_KEY, chatHistory);
-        }, 500);
-    }
     
     // Generate or regenerate chapter
     $('#generateChapterBtn, #regenerateChapterBtn').click(function() {
-        chatEditing.cancel();
-        clearTimeout(chatReplyTimer);
-        chatEditing.setBusy(false);
         $('#generatingIndicator').removeClass('d-none');
         $(this).prop('disabled', true);
-        
-        // Get any additional context from chat
-        const additionalContext = chatHistory.length > 0 
-            ? "\n\nAdditional user requirements:\n" + 
-              chatHistory.filter(msg => msg.role === 'user')
-                        .map(msg => "- " + msg.content)
-                        .join("\n")
-            : "";
-        
         const masterPrompt = $('#masterPrompt').val();
         const pointOfView = $('#pointOfView').val();
         const tense = $('#tense').val();
         const action_beats_content = $('#actionBeatsEditor-hidden').val();
 
         const requestData = {
-            additional_context: additionalContext,
             master_prompt: masterPrompt,
             point_of_view: pointOfView,
             tense: tense,
@@ -367,6 +228,7 @@ $(document).ready(function() {
             headers: {
                 'Content-Type': 'application/json',
             },
+            signal: getStreamSignal(),
             body: JSON.stringify(requestData)
         }).then(response => {
             const reader = response.body.getReader();
@@ -376,13 +238,9 @@ $(document).ready(function() {
                 return reader.read().then(({ value, done }) => {
                     if (done) {
                         // End of stream
+                        clearActiveStream();
                         $('#generatingIndicator').addClass('d-none');
                         $('#generateChapterBtn, #regenerateChapterBtn').prop('disabled', false);
-                        // Keep the chat and its details so regeneration still applies them
-                        const note = "The chapter has been generated using the requirements above. You can keep these details or update them, then regenerate anytime.";
-                        addMessageToChat('ai', note);
-                        chatHistory.push({role: 'ai', content: note});
-                        saveChatHistory(CHAT_KEY, chatHistory);
                         return;
                     }
 
@@ -422,50 +280,18 @@ $(document).ready(function() {
             }
             return readStream();
         }).catch(error => {
+            clearActiveStream();
+            if (error.name === 'AbortError') {
+                $('#generatingIndicator').addClass('d-none');
+                $('#generateChapterBtn, #regenerateChapterBtn').prop('disabled', false);
+                return;
+            }
             console.error('Fetch error:', error);
             alert('Error generating chapter. Please try again.');
             $('#generatingIndicator').addClass('d-none');
             $('#generateChapterBtn, #regenerateChapterBtn').prop('disabled', false);
         });
     });
-    
-    // Add message to chat display
-    function addMessageToChat(sender, message) {
-        const messageDiv = $('<div>').addClass('mb-3');
-        
-        if (sender === 'user') {
-            messageDiv.addClass('text-end user-msg');
-            const messageBubble = $('<div>').addClass('d-inline-block bg-primary text-white p-2 rounded-3 msg-bubble')
-                                            .css('max-width', '80%')
-                                            .html(formatMessage(message));
-            messageDiv.append(messageBubble);
-            const editBtn = $('<button>')
-                .attr('type', 'button')
-                .addClass('btn btn-link btn-sm p-0 ms-1 msg-edit-btn')
-                .attr('title', 'Edit message')
-                .html('<i class="bi bi-pencil"></i>');
-            messageDiv.append(editBtn);
-        } else if (sender === 'ai') {
-            messageDiv.addClass('text-start');
-            const messageBubble = $('<div>').addClass('d-inline-block bg-body-tertiary p-2 rounded-3')
-                                            .css('max-width', '80%')
-                                            .html(formatMessage(message));
-            messageDiv.append(messageBubble);
-        } else {
-            // System message
-            messageDiv.addClass('text-center');
-            const messageBubble = $('<div>').addClass('d-inline-block bg-warning p-2 rounded-3')
-                                            .text(message);
-            messageDiv.append(messageBubble);
-        }
-        
-$('#chatMessages').append(messageDiv);
-    }
-    
-    // Format single-line message
-    function formatMessage(message) {
-        return message.replace(/\n/g, '<br>');
-    }
     
     // Save chapter
     $('#saveChapterForm').submit(function(e) {
@@ -522,6 +348,18 @@ $('#chatMessages').append(messageDiv);
                 $('#savingActionBeatsIndicator').addClass('d-none');                
                 $('#saveActionBeatsBtn').prop('disabled', false);
             }
+        });
+    });
+
+    // Delete Action Beats
+    $('#deleteActionBeatsBtn').click(function() {
+        confirmAction({ title: 'Delete Action Beats', message: 'Delete the action beats for this chapter? This cannot be undone.', confirmText: 'Delete' }, function() {
+            $.post(`/delete_action_beats/{{ chapter.chapter_number }}`).done(function() {
+                clearChatHistory('opentale_chat_action_beats_' + {{ chapter.chapter_number }});
+                window.location.reload();
+            }).fail(function() {
+                alert('Error deleting action beats. Please try again.');
+            });
         });
     });
 
@@ -584,20 +422,12 @@ $('#chatMessages').append(messageDiv);
 
     // Show prompt
     $('#showPromptBtn').click(function() {
-        const additionalContext = chatHistory.length > 0
-            ? "\n\nAdditional user requirements:\n" +
-              chatHistory.filter(msg => msg.role === 'user')
-                        .map(msg => "- " + msg.content)
-                        .join("\n")
-            : "";
-        
         const masterPrompt = $('#masterPrompt').val();
         const pointOfView = $('#pointOfView').val();
         const tense = $('#tense').val();
         const action_beats_content = $('#actionBeatsEditor-hidden').val();
 
         const requestData = {
-            additional_context: additionalContext,
             master_prompt: masterPrompt,
             point_of_view: pointOfView,
             tense: tense,

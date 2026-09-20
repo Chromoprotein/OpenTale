@@ -62,6 +62,7 @@
                         <span class="visually-hidden">Loading...</span>
                     </div>
                     <div>AI is thinking...</div>
+                    <button type="button" class="btn btn-outline-danger btn-sm ms-auto" id="stopStreamBtn"><i class="bi bi-stop-fill me-1"></i>Stop</button>
                 </div>
             </div>
             <div class="d-flex align-items-end">
@@ -89,6 +90,7 @@
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-outline-primary" id="acceptActionBeatsBtn" disabled><i class="bi bi-check-lg me-1"></i>Accept &amp; Clear Chat</button>
                     <button type="submit" class="btn btn-success" id="saveActionBeatsBtn">Save Changes</button>
+                    <button type="button" class="btn btn-outline-danger" id="deleteActionBeatsBtn"><i class="bi bi-trash3 me-1"></i>Delete</button>
                 </div>
                 <a href="/chapter/{{ chapter.chapter_number }}" class="btn btn-primary">Return to Chapter</a>
             </div>
@@ -269,6 +271,7 @@ $(document).ready(function() {
             headers: {
                 'Content-Type': 'application/json',
             },
+            signal: getStreamSignal(),
             body: JSON.stringify(requestData)
         }).then(response => {
             // Use a ReadableStream to process the streaming response
@@ -279,6 +282,7 @@ $(document).ready(function() {
                 return reader.read().then(({ value, done }) => {
                     if (done) {
                         // End of stream
+                        clearActiveStream();
                         $('#chatTypingIndicator').addClass('d-none');
                         chatEditing.setBusy(false);
                         // Update chat history with complete response
@@ -323,6 +327,13 @@ $(document).ready(function() {
             // Start reading the stream
             return readStream();
         }).catch(error => {
+            clearActiveStream();
+            if (error.name === 'AbortError') {
+                $('#chatTypingIndicator').addClass('d-none');
+                chatEditing.setBusy(false);
+                messageDiv.remove();
+                return;
+            }
             console.error('Fetch error:', error);
             $('#chatTypingIndicator').addClass('d-none');
             chatEditing.setBusy(false);
@@ -356,6 +367,7 @@ $(document).ready(function() {
             headers: {
                 'Content-Type': 'application/json',
             },
+            signal: getStreamSignal(),
             body: JSON.stringify({
                 chat_history: chatHistory,
                 num_beats: $('#numBeats').val(),
@@ -370,6 +382,7 @@ $(document).ready(function() {
                 return reader.read().then(({ value, done }) => {
                     if (done) {
                         // End of stream
+                        clearActiveStream();
                         $('#chatTypingIndicator').addClass('d-none');
                         $('#finalizeChatBtn').prop('disabled', false);
                         // Remove typing cursor
@@ -418,6 +431,13 @@ $(document).ready(function() {
             // Start reading the stream
             return readStream();
         }).catch(error => {
+            clearActiveStream();
+            if (error.name === 'AbortError') {
+                $('#chatTypingIndicator').addClass('d-none');
+                $('#finalizeChatBtn').prop('disabled', false);
+                draftDiv.remove();
+                return;
+            }
             console.error('Fetch error for final action beats:', error);
             $('#chatTypingIndicator').addClass('d-none');
             $('#finalizeChatBtn').prop('disabled', false);
@@ -451,6 +471,18 @@ $(document).ready(function() {
         lastDraftText = null;
         $('#useDraftBtn').prop('disabled', true);
         updateChatButtonStates(chatHistory, chatButtons);
+    });
+    
+    // Delete action beats
+    $('#deleteActionBeatsBtn').click(function() {
+        confirmAction({ title: 'Delete Action Beats', message: 'Delete the action beats for this chapter? This cannot be undone.', confirmText: 'Delete' }, function() {
+            $.post(`/delete_action_beats/${chapterNumber}`).done(function() {
+                clearChatHistory(CHAT_KEY);
+                window.location.reload();
+            }).fail(function() {
+                alert('Error deleting action beats. Please try again.');
+            });
+        });
     });
     
     // Add message to chat display

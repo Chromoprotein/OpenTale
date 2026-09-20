@@ -94,6 +94,7 @@
                         <span class="visually-hidden">Loading...</span>
                     </div>
                     <div>AI is thinking...</div>
+                    <button type="button" class="btn btn-outline-danger btn-sm ms-auto" id="stopStreamBtn"><i class="bi bi-stop-fill me-1"></i>Stop</button>
                 </div>
             </div>
             <div class="d-flex align-items-end">
@@ -308,6 +309,7 @@ $(document).ready(function() {
             headers: {
                 'Content-Type': 'application/json',
             },
+            signal: getStreamSignal(),
             body: JSON.stringify(requestData)
         }).then(response => {
             // Use a ReadableStream to process the streaming response
@@ -318,6 +320,7 @@ $(document).ready(function() {
                 return reader.read().then(({ value, done }) => {
                     if (done) {
                         // End of stream
+                        clearActiveStream();
                         $('#chatTypingIndicator').addClass('d-none');
                         chatEditing.setBusy(false);
                         // Update chat history with complete response
@@ -362,6 +365,13 @@ $(document).ready(function() {
             // Start reading the stream
             return readStream();
         }).catch(error => {
+            clearActiveStream();
+            if (error.name === 'AbortError') {
+                $('#chatTypingIndicator').addClass('d-none');
+                chatEditing.setBusy(false);
+                messageDiv.remove();
+                return;
+            }
             console.error('Fetch error:', error);
             $('#chatTypingIndicator').addClass('d-none');
             chatEditing.setBusy(false);
@@ -395,6 +405,7 @@ $(document).ready(function() {
             headers: {
                 'Content-Type': 'application/json',
             },
+            signal: getStreamSignal(),
             body: JSON.stringify({
                 chat_history: chatHistory,
                 num_chapters: $('#numChapters').val()
@@ -408,6 +419,7 @@ $(document).ready(function() {
                 return reader.read().then(({ value, done }) => {
                     if (done) {
                         // End of stream
+                        clearActiveStream();
                         $('#chatTypingIndicator').addClass('d-none');
                         $('#finalizeChatBtn').prop('disabled', false);
                         // Remove typing cursor
@@ -456,6 +468,13 @@ $(document).ready(function() {
             // Start reading the stream
             return readStream();
         }).catch(error => {
+            clearActiveStream();
+            if (error.name === 'AbortError') {
+                $('#chatTypingIndicator').addClass('d-none');
+                $('#finalizeChatBtn').prop('disabled', false);
+                draftDiv.remove();
+                return;
+            }
             console.error('Fetch error for final outline:', error);
             $('#chatTypingIndicator').addClass('d-none');
             $('#finalizeChatBtn').prop('disabled', false);

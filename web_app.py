@@ -249,6 +249,16 @@ def synopsis():
     )
 
 
+def _close_stream(stream):
+    """Close an upstream LLM stream so generation stops when the client disconnects."""
+    try:
+        close = getattr(stream, "close", None)
+        if callable(close):
+            close()
+    except Exception:
+        pass
+
+
 @app.route("/synopsis_chat_stream", methods=["POST"])
 def synopsis_chat_stream():
     """Handle ongoing chat for synopsis building with streaming response"""
@@ -273,24 +283,27 @@ def synopsis_chat_stream():
     )
 
     def generate():
-        # Send a heartbeat to establish the connection
-        yield 'data: {"content": ""}\n\n'
+        try:
+            # Send a heartbeat to establish the connection
+            yield 'data: {"content": ""}\n\n'
 
-        # Iterate through the stream to get each chunk
-        for chunk in stream:
-            if (
-                chunk.choices
-                and len(chunk.choices) > 0
-                and chunk.choices[0].delta
-                and chunk.choices[0].delta.content is not None
-            ):
-                content = chunk.choices[0].delta.content
-                # Send each token as it arrives
-                yield f"data: {json.dumps({'content': content})}\n\n"
+            # Iterate through the stream to get each chunk
+            for chunk in stream:
+                if (
+                    chunk.choices
+                    and len(chunk.choices) > 0
+                    and chunk.choices[0].delta
+                    and chunk.choices[0].delta.content is not None
+                ):
+                    content = chunk.choices[0].delta.content
+                    # Send each token as it arrives
+                    yield f"data: {json.dumps({'content': content})}\n\n"
 
-        # Send completion marker
-        yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
+            # Send completion marker
+            yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
+        finally:
+            _close_stream(stream)
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -320,31 +333,34 @@ def finalize_synopsis_stream():
     stream = book_agents.generate_final_synopsis_stream(chat_history, topic)
 
     def generate():
-        # Send a heartbeat to establish the connection
-        yield 'data: {"content": ""}\n\n'
+        try:
+            # Send a heartbeat to establish the connection
+            yield 'data: {"content": ""}\n\n'
 
-        # Collect all chunks to save the complete response
-        collected_content = []
+            # Collect all chunks to save the complete response
+            collected_content = []
 
-        # Iterate through the stream to get each chunk
-        for chunk in stream:
-            if (
-                chunk.choices
-                and len(chunk.choices) > 0
-                and chunk.choices[0].delta
-                and chunk.choices[0].delta.content is not None
-            ):
-                content = chunk.choices[0].delta.content
-                collected_content.append(content)
-                # Send each token as it arrives
-                yield f"data: {json.dumps({'content': content})}\n\n"
+            # Iterate through the stream to get each chunk
+            for chunk in stream:
+                if (
+                    chunk.choices
+                    and len(chunk.choices) > 0
+                    and chunk.choices[0].delta
+                    and chunk.choices[0].delta.content is not None
+                ):
+                    content = chunk.choices[0].delta.content
+                    collected_content.append(content)
+                    # Send each token as it arrives
+                    yield f"data: {json.dumps({'content': content})}\n\n"
 
-        # Combine all chunks for the complete content
-        complete_content = "".join(collected_content)
+            # Combine all chunks for the complete content
+            complete_content = "".join(collected_content)
 
-        # Send completion marker
-        yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
+            # Send completion marker
+            yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
+        finally:
+            _close_stream(stream)
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -448,24 +464,27 @@ def world_chat_stream():
     )
 
     def generate():
-        # Send a heartbeat to establish the connection
-        yield 'data: {"content": ""}\n\n'
+        try:
+            # Send a heartbeat to establish the connection
+            yield 'data: {"content": ""}\n\n'
 
-        # Iterate through the stream to get each chunk
-        for chunk in stream:
-            if (
-                chunk.choices
-                and len(chunk.choices) > 0
-                and chunk.choices[0].delta
-                and chunk.choices[0].delta.content is not None
-            ):
-                content = chunk.choices[0].delta.content
-                # Send each token as it arrives
-                yield f"data: {json.dumps({'content': content})}\n\n"
+            # Iterate through the stream to get each chunk
+            for chunk in stream:
+                if (
+                    chunk.choices
+                    and len(chunk.choices) > 0
+                    and chunk.choices[0].delta
+                    and chunk.choices[0].delta.content is not None
+                ):
+                    content = chunk.choices[0].delta.content
+                    # Send each token as it arrives
+                    yield f"data: {json.dumps({'content': content})}\n\n"
 
-        # Send completion marker
-        yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
+            # Send completion marker
+            yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
+        finally:
+            _close_stream(stream)
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -514,31 +533,34 @@ def finalize_world_stream():
     )
 
     def generate():
-        # Send a heartbeat to establish the connection
-        yield 'data: {"content": ""}\n\n'
+        try:
+            # Send a heartbeat to establish the connection
+            yield 'data: {"content": ""}\n\n'
 
-        # Collect all chunks to save the complete response
-        collected_content = []
+            # Collect all chunks to save the complete response
+            collected_content = []
 
-        # Iterate through the stream to get each chunk
-        for chunk in stream:
-            if (
-                chunk.choices
-                and len(chunk.choices) > 0
-                and chunk.choices[0].delta
-                and chunk.choices[0].delta.content is not None
-            ):
-                content = chunk.choices[0].delta.content
-                collected_content.append(content)
-                # Send each token as it arrives
-                yield f"data: {json.dumps({'content': content})}\n\n"
+            # Iterate through the stream to get each chunk
+            for chunk in stream:
+                if (
+                    chunk.choices
+                    and len(chunk.choices) > 0
+                    and chunk.choices[0].delta
+                    and chunk.choices[0].delta.content is not None
+                ):
+                    content = chunk.choices[0].delta.content
+                    collected_content.append(content)
+                    # Send each token as it arrives
+                    yield f"data: {json.dumps({'content': content})}\n\n"
 
-        # Combine all chunks for the complete content
-        complete_content = "".join(collected_content)
+            # Combine all chunks for the complete content
+            complete_content = "".join(collected_content)
 
-        # Send completion marker
-        yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
+            # Send completion marker
+            yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
+        finally:
+            _close_stream(stream)
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -971,34 +993,37 @@ def _handle_chapter_stream(chapter_number, agent_name):
 
     # Define the generator function for the streaming response
     def generate():
-        # Send a heartbeat to establish the connection
-        yield 'data: {"content": ""}\n\n'
-        collected_content = []
-        # Process each chunk from the stream
-        for chunk in stream:
-            if (
-                chunk.choices
-                and len(chunk.choices) > 0
-                and chunk.choices[0].delta
-                and chunk.choices[0].delta.content is not None
-            ):
-                content = chunk.choices[0].delta.content
-                collected_content.append(content)
-                # Yield each piece of content as a server-sent event
-                yield f"data: {json.dumps({'content': content})}\n\n"
+        try:
+            # Send a heartbeat to establish the connection
+            yield 'data: {"content": ""}\n\n'
+            collected_content = []
+            # Process each chunk from the stream
+            for chunk in stream:
+                if (
+                    chunk.choices
+                    and len(chunk.choices) > 0
+                    and chunk.choices[0].delta
+                    and chunk.choices[0].delta.content is not None
+                ):
+                    content = chunk.choices[0].delta.content
+                    collected_content.append(content)
+                    # Yield each piece of content as a server-sent event
+                    yield f"data: {json.dumps({'content': content})}\n\n"
 
-        # Once streaming is complete, save the full content to a file
-        complete_content = "".join(collected_content)
-        file_suffix = "_editor" if agent_name == "editor" else ""
-        chapter_path = os.path.join(
-            CHAPTERS_DIR, f"chapter_{chapter_number}{file_suffix}{TEXT_EXTENSION}"
-        )
-        with open(chapter_path, "w", encoding="utf-8") as f:
-            f.write(complete_content)
+            # Once streaming is complete, save the full content to a file
+            complete_content = "".join(collected_content)
+            file_suffix = "_editor" if agent_name == "editor" else ""
+            chapter_path = os.path.join(
+                CHAPTERS_DIR, f"chapter_{chapter_number}{file_suffix}{TEXT_EXTENSION}"
+            )
+            with open(chapter_path, "w", encoding="utf-8") as f:
+                f.write(complete_content)
 
-        # Send a final marker to indicate the end of the stream
-        yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
+            # Send a final marker to indicate the end of the stream
+            yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
+        finally:
+            _close_stream(stream)
     # Return the streaming response
     return Response(
         stream_with_context(generate()),
@@ -1120,24 +1145,27 @@ def inline_llm_continue_stream():
     )
 
     def generate():
-        # Send a heartbeat to establish the connection
-        yield 'data: {"content": ""}\n\n'
+        try:
+            # Send a heartbeat to establish the connection
+            yield 'data: {"content": ""}\n\n'
 
-        # Iterate through the stream to get each chunk
-        for chunk in stream:
-            if (
-                chunk.choices
-                and len(chunk.choices) > 0
-                and chunk.choices[0].delta
-                and chunk.choices[0].delta.content is not None
-            ):
-                content = chunk.choices[0].delta.content
-                # Send each token as it arrives
-                yield f"data: {json.dumps({'content': content})}\n\n"
+            # Iterate through the stream to get each chunk
+            for chunk in stream:
+                if (
+                    chunk.choices
+                    and len(chunk.choices) > 0
+                    and chunk.choices[0].delta
+                    and chunk.choices[0].delta.content is not None
+                ):
+                    content = chunk.choices[0].delta.content
+                    # Send each token as it arrives
+                    yield f"data: {json.dumps({'content': content})}\n\n"
 
-        # Send completion marker
-        yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
+            # Send completion marker
+            yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
+        finally:
+            _close_stream(stream)
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -1175,24 +1203,27 @@ def inline_llm_revise_stream():
     )
 
     def generate():
-        # Send a heartbeat to establish the connection
-        yield 'data: {"content": ""}\n\n'
+        try:
+            # Send a heartbeat to establish the connection
+            yield 'data: {"content": ""}\n\n'
 
-        # Iterate through the stream to get each chunk
-        for chunk in stream:
-            if (
-                chunk.choices
-                and len(chunk.choices) > 0
-                and chunk.choices[0].delta
-                and chunk.choices[0].delta.content is not None
-            ):
-                content = chunk.choices[0].delta.content
-                # Send each token as it arrives
-                yield f"data: {json.dumps({'content': content})}\n\n"
+            # Iterate through the stream to get each chunk
+            for chunk in stream:
+                if (
+                    chunk.choices
+                    and len(chunk.choices) > 0
+                    and chunk.choices[0].delta
+                    and chunk.choices[0].delta.content is not None
+                ):
+                    content = chunk.choices[0].delta.content
+                    # Send each token as it arrives
+                    yield f"data: {json.dumps({'content': content})}\n\n"
 
-        # Send completion marker
-        yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
+            # Send completion marker
+            yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
+        finally:
+            _close_stream(stream)
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -1411,6 +1442,18 @@ def save_action_beats(chapter_number):
     return jsonify({"success": True})
 
 
+@app.route("/delete_action_beats/<int:chapter_number>", methods=["POST"])
+def delete_action_beats(chapter_number):
+    """Delete saved action beats so they can be recreated."""
+    action_beats_path = os.path.join(
+        CHAPTERS_DIR, f"chapter_{chapter_number}_action_beats{TEXT_EXTENSION}"
+    )
+    if os.path.exists(action_beats_path):
+        os.remove(action_beats_path)
+
+    return jsonify({"success": True})
+
+
 @app.route("/action_beats_chat/<int:chapter_number>", methods=["GET"])
 def action_beats_chat(chapter_number):
     """Display action beats chat interface"""
@@ -1476,18 +1519,21 @@ def action_beats_chat_stream(chapter_number):
     )
 
     def generate():
-        yield 'data: {"content": ""}\n\n'
-        for chunk in stream:
-            if (
-                chunk.choices
-                and len(chunk.choices) > 0
-                and chunk.choices[0].delta
-                and chunk.choices[0].delta.content is not None
-            ):
-                content = chunk.choices[0].delta.content
-                yield f"data: {json.dumps({'content': content})}\n\n"
-        yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
+        try:
+            yield 'data: {"content": ""}\n\n'
+            for chunk in stream:
+                if (
+                    chunk.choices
+                    and len(chunk.choices) > 0
+                    and chunk.choices[0].delta
+                    and chunk.choices[0].delta.content is not None
+                ):
+                    content = chunk.choices[0].delta.content
+                    yield f"data: {json.dumps({'content': content})}\n\n"
+            yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
+        finally:
+            _close_stream(stream)
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -1532,23 +1578,26 @@ def finalize_action_beats_stream(chapter_number):
     )
 
     def generate():
-        yield 'data: {"content": ""}\n\n'
-        collected_content = []
-        for chunk in stream:
-            if (
-                chunk.choices
-                and len(chunk.choices) > 0
-                and chunk.choices[0].delta
-                and chunk.choices[0].delta.content is not None
-            ):
-                content = chunk.choices[0].delta.content
-                collected_content.append(content)
-                yield f"data: {json.dumps({'content': content})}\n\n"
+        try:
+            yield 'data: {"content": ""}\n\n'
+            collected_content = []
+            for chunk in stream:
+                if (
+                    chunk.choices
+                    and len(chunk.choices) > 0
+                    and chunk.choices[0].delta
+                    and chunk.choices[0].delta.content is not None
+                ):
+                    content = chunk.choices[0].delta.content
+                    collected_content.append(content)
+                    yield f"data: {json.dumps({'content': content})}\n\n"
 
-        complete_content = "".join(collected_content)
+            complete_content = "".join(collected_content)
 
-        yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
+            yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
+        finally:
+            _close_stream(stream)
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -1611,24 +1660,27 @@ def characters_chat_stream():
     )
 
     def generate():
-        # Send a heartbeat to establish the connection
-        yield 'data: {"content": ""}\n\n'
+        try:
+            # Send a heartbeat to establish the connection
+            yield 'data: {"content": ""}\n\n'
 
-        # Iterate through the stream to get each chunk
-        for chunk in stream:
-            if (
-                chunk.choices
-                and len(chunk.choices) > 0
-                and chunk.choices[0].delta
-                and chunk.choices[0].delta.content is not None
-            ):
-                content = chunk.choices[0].delta.content
-                # Send each token as it arrives
-                yield f"data: {json.dumps({'content': content})}\n\n"
+            # Iterate through the stream to get each chunk
+            for chunk in stream:
+                if (
+                    chunk.choices
+                    and len(chunk.choices) > 0
+                    and chunk.choices[0].delta
+                    and chunk.choices[0].delta.content is not None
+                ):
+                    content = chunk.choices[0].delta.content
+                    # Send each token as it arrives
+                    yield f"data: {json.dumps({'content': content})}\n\n"
 
-        # Send completion marker
-        yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
+            # Send completion marker
+            yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
+        finally:
+            _close_stream(stream)
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -1660,31 +1712,34 @@ def finalize_characters_stream():
     )
 
     def generate():
-        # Send a heartbeat to establish the connection
-        yield 'data: {"content": ""}\n\n'
+        try:
+            # Send a heartbeat to establish the connection
+            yield 'data: {"content": ""}\n\n'
 
-        # Collect all chunks to save the complete response
-        collected_content = []
+            # Collect all chunks to save the complete response
+            collected_content = []
 
-        # Iterate through the stream to get each chunk
-        for chunk in stream:
-            if (
-                chunk.choices
-                and len(chunk.choices) > 0
-                and chunk.choices[0].delta
-                and chunk.choices[0].delta.content is not None
-            ):
-                content = chunk.choices[0].delta.content
-                collected_content.append(content)
-                # Send each token as it arrives
-                yield f"data: {json.dumps({'content': content})}\n\n"
+            # Iterate through the stream to get each chunk
+            for chunk in stream:
+                if (
+                    chunk.choices
+                    and len(chunk.choices) > 0
+                    and chunk.choices[0].delta
+                    and chunk.choices[0].delta.content is not None
+                ):
+                    content = chunk.choices[0].delta.content
+                    collected_content.append(content)
+                    # Send each token as it arrives
+                    yield f"data: {json.dumps({'content': content})}\n\n"
 
-        # Combine all chunks for the complete content
-        complete_content = "".join(collected_content)
+            # Combine all chunks for the complete content
+            complete_content = "".join(collected_content)
 
-        # Send completion marker
-        yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
+            # Send completion marker
+            yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
+        finally:
+            _close_stream(stream)
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -1759,24 +1814,27 @@ def outline_chat_stream():
     )
 
     def generate():
-        # Send a heartbeat to establish the connection
-        yield 'data: {"content": ""}\n\n'
+        try:
+            # Send a heartbeat to establish the connection
+            yield 'data: {"content": ""}\n\n'
 
-        # Iterate through the stream to get each chunk
-        for chunk in stream:
-            if (
-                chunk.choices
-                and len(chunk.choices) > 0
-                and chunk.choices[0].delta
-                and chunk.choices[0].delta.content is not None
-            ):
-                content = chunk.choices[0].delta.content
-                # Send each token as it arrives
-                yield f"data: {json.dumps({'content': content})}\n\n"
+            # Iterate through the stream to get each chunk
+            for chunk in stream:
+                if (
+                    chunk.choices
+                    and len(chunk.choices) > 0
+                    and chunk.choices[0].delta
+                    and chunk.choices[0].delta.content is not None
+                ):
+                    content = chunk.choices[0].delta.content
+                    # Send each token as it arrives
+                    yield f"data: {json.dumps({'content': content})}\n\n"
 
-        # Send completion marker
-        yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
+            # Send completion marker
+            yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
+        finally:
+            _close_stream(stream)
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -1814,31 +1872,34 @@ def finalize_outline_stream():
     )
 
     def generate():
-        # Send a heartbeat to establish the connection
-        yield 'data: {"content": ""}\n\n'
+        try:
+            # Send a heartbeat to establish the connection
+            yield 'data: {"content": ""}\n\n'
 
-        # Collect all chunks to save the complete response
-        collected_content = []
+            # Collect all chunks to save the complete response
+            collected_content = []
 
-        # Iterate through the stream to get each chunk
-        for chunk in stream:
-            if (
-                chunk.choices
-                and len(chunk.choices) > 0
-                and chunk.choices[0].delta
-                and chunk.choices[0].delta.content is not None
-            ):
-                content = chunk.choices[0].delta.content
-                collected_content.append(content)
-                # Send each token as it arrives
-                yield f"data: {json.dumps({'content': content})}\n\n"
+            # Iterate through the stream to get each chunk
+            for chunk in stream:
+                if (
+                    chunk.choices
+                    and len(chunk.choices) > 0
+                    and chunk.choices[0].delta
+                    and chunk.choices[0].delta.content is not None
+                ):
+                    content = chunk.choices[0].delta.content
+                    collected_content.append(content)
+                    # Send each token as it arrives
+                    yield f"data: {json.dumps({'content': content})}\n\n"
 
-        # Combine all chunks for the complete content
-        complete_content = "".join(collected_content)
+            # Combine all chunks for the complete content
+            complete_content = "".join(collected_content)
 
-        # Send completion marker
-        yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
+            # Send completion marker
+            yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
 
+        finally:
+            _close_stream(stream)
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",

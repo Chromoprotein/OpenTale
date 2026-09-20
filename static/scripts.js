@@ -720,3 +720,28 @@ function showDualContentModal(title, tab1Title, tab1Content, tab2Title, tab2Cont
 
     updateIcon();
 })();
+
+/**
+ * Track the single active streaming request across pages so a shared
+ * Stop button can abort it. The button (#stopStreamBtn) lives inside the
+ * streaming indicators and only becomes visible while a stream is running.
+ */
+let activeStreamController = null;
+
+function getStreamSignal() {
+    activeStreamController = new AbortController();
+    return activeStreamController.signal;
+}
+
+function cancelActiveStream() {
+    if (activeStreamController) {
+        activeStreamController.abort();
+        activeStreamController = null;
+    }
+}
+
+function clearActiveStream() {
+    activeStreamController = null;
+}
+
+$(document).on('click', '#stopStreamBtn', cancelActiveStream);

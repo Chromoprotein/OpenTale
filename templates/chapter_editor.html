@@ -3,16 +3,13 @@
 
 {% block title %}OpenTale - Chapter Editor - {{ chapter.chapter_number }}{% endblock %}
 
-{% block navbar_title %}Chapter Editing Chat{% endblock %}
+{% block navbar_title %}Review Chapter {{ chapter.chapter_number }}: {{ chapter.title }}{% endblock %}
 
 {% block content %}
 <div class="row">
     <div class="col-12 mb-4">
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-            <h2 class="h4 mb-0">Review Chapter {{ chapter.chapter_number }}: {{ chapter.title }}</h2>
-            <div>
-                <a href="/chapter/{{ chapter.chapter_number }}" class="btn btn-outline-secondary btn-sm">&laquo; Author Chapter View</a>
-            </div>
+        <div class="d-flex justify-content-end mb-3">
+            <a href="/chapter/{{ chapter.chapter_number }}" class="btn btn-outline-secondary btn-sm">&laquo; Author Chapter View</a>
         </div>
                 {% if not has_review %}
                 <div class="alert alert-warning alert-dismissible fade show" role="alert">
@@ -107,7 +104,10 @@
                                                     </div>
                                                     <div class="d-flex justify-content-between">
                                                         <button type="submit" class="btn btn-success btn-sm" id="saveActionBeatsBtn">Save Action Beats</button>
-                                                        <a href="/action_beats_chat/{{ chapter.chapter_number }}" class="btn btn-warning btn-sm">Go To Action Beats Editor</a>
+                                                        <div class="d-flex gap-2">
+                                                            <a href="/action_beats_chat/{{ chapter.chapter_number }}" class="btn btn-warning btn-sm">Go To Action Beats Editor</a>
+                                                            <button type="button" class="btn btn-outline-danger btn-sm" id="deleteActionBeatsBtn"><i class="bi bi-trash3 me-1"></i>Delete</button>
+                                                        </div>
                                                     </div>
                                                 </form>
        
@@ -180,6 +180,7 @@
                             <span class="visually-hidden">Loading...</span>
                         </div>
                         <div>Editing chapter content... This may take several minutes.</div>
+                        <button type="button" class="btn btn-outline-danger btn-sm ms-auto" id="stopStreamBtn"><i class="bi bi-stop-fill me-1"></i>Stop</button>
                     </div>
                 </div>
 
@@ -384,6 +385,7 @@ $(document).ready(function() {
             headers: {
                 'Content-Type': 'application/json',
             },
+            signal: getStreamSignal(),
             body: JSON.stringify(requestData)
         }).then(response => {
             const reader = response.body.getReader();
@@ -393,6 +395,7 @@ $(document).ready(function() {
                 return reader.read().then(({ value, done }) => {
                     if (done) {
                         // End of stream
+                        clearActiveStream();
                         $('#generatingIndicator').addClass('d-none');
                         $('#executeChapterReviewBtn').prop('disabled', false);
                         return;
@@ -434,6 +437,12 @@ $(document).ready(function() {
             }
             return readStream();
         }).catch(error => {
+            clearActiveStream();
+            if (error.name === 'AbortError') {
+                $('#generatingIndicator').addClass('d-none');
+                $('#executeChapterReviewBtn').prop('disabled', false);
+                return;
+            }
             console.error('Fetch error:', error);
             alert('Error editing chapter. Please try again.');
             $('#generatingIndicator').addClass('d-none');
@@ -542,6 +551,18 @@ $(document).ready(function() {
                 $('#savingActionBeatsIndicator').addClass('d-none');
                 $('#saveActionBeatsBtn').prop('disabled', false);
             }
+        });
+    });
+
+    // Delete Action Beats
+    $('#deleteActionBeatsBtn').click(function() {
+        confirmAction({ title: 'Delete Action Beats', message: 'Delete the action beats for this chapter? This cannot be undone.', confirmText: 'Delete' }, function() {
+            $.post(`/delete_action_beats/{{ chapter.chapter_number }}`).done(function() {
+                clearChatHistory('opentale_chat_action_beats_' + {{ chapter.chapter_number }});
+                window.location.reload();
+            }).fail(function() {
+                alert('Error deleting action beats. Please try again.');
+            });
         });
     });
 
