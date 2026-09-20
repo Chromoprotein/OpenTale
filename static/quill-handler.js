@@ -9,7 +9,7 @@
  * - Encapsulates each editor in a `QuillHandler` instance.
  * - Removes jQuery dependency for faster, more modern code.
  * - Manages LLM interactions (continue and revise) via streaming APIs.
- * - Provides hotkeys for running (`\`), accepting (`=`), and rejecting (`Escape`) LLM suggestions.
+ * - Provides a hotkey (`\`) that opens a modal for generating AI continue/revise suggestions.
  * - Includes custom toolbar icons and functionalities like a divider and content viewers.
  * - Persists font size settings in local storage.
  * - Converts editor content to Markdown for form submission.
@@ -149,91 +149,9 @@ document.addEventListener('DOMContentLoaded', () => {
         icons['showMarkdown'] = '<svg viewBox="0 0 128 128" fill="currentColor"><path d="M12 24.3c-5.8 0-10.6 4.9-10.6 10.7v57.9c0 5.8 4.8 10.7 10.6 10.7h104.1c5.8 0 10.6-4.9 10.6-10.7V35c0-5.8-4.8-10.7-10.6-10.7H12zm0 9.5h104.1c.6 0 1.1.4 1.1 1.1v57.9c0 .7-.5 1.1-1.1 1.1H12c-.6 0-1.1-.4-1.1-1.1V35c0-.7.5-1.1 1.1-1.1z"/><path d="M20.7 84.1V43.9h11.7l11.7 14.8 11.7-14.8h11.7v40.2H55.8V61l-11.7 14.8-11.7-14.8V84.1H20.7zm73.1 0L76.3 64.6h11.7V43.9h11.7v20.7h11.7z"/></svg>';
         icons['increaseFontSize'] = '<svg viewBox="0 0 18 18" stroke="currentColor" stroke-width="2"><line x1="9" y1="5" x2="9" y2="13"/><line x1="5" y1="9" x2="13" y2="9"/></svg>';
         icons['decreaseFontSize'] = '<svg viewBox="0 0 18 18" stroke="currentColor" stroke-width="2"><line x1="5" y1="9" x2="13" y2="9"/></svg>';
-        icons['runLlm'] = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
-        icons['accept'] = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>';
-        icons['reject'] = '<svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
     }
 
-    registerCustomQuillFeatures();
-
-    /**
-     * Shows a Bootstrap modal for revising text with an optional user prompt.
-     * @param {string} textToRevise The text that will be revised.
-     * @param {function} onSubmit Callback function to execute when the form is submitted.
-     *                            Receives the user prompt as a parameter.
-     */
-    function showReviseModal(textToRevise, onSubmit) {
-        // Remove any existing modals
-        const existingModal = document.getElementById('reviseModal');
-        if (existingModal) {
-            existingModal.remove();
-        }
-    
-        // Create modal elements
-        const modal = document.createElement('div');
-        modal.className = 'modal fade';
-        modal.id = 'reviseModal';
-        modal.tabIndex = -1;
-        modal.innerHTML = `
-            <div class="modal-dialog modal-xl modal-fullscreen-lg-down">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Revise Text</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="mb-3">
-                            <label class="form-label fw-bold">Text to Revise:</label>
-                            <div class="border rounded p-3 bg-light" style="max-height: 10em; overflow-y: auto;">
-                                <pre class="mb-0" style="white-space: pre-wrap; word-wrap: break-word;"><code>${textToRevise.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>                            
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="userPrompt" class="form-label">Additional Instructions? (Optional)</label>
-                            <textarea class="form-control" id="userPrompt" rows="3" placeholder="Enter any additional instructions for revising this text..."></textarea>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" class="btn btn-primary" id="submitRevise">Revise</button>
-                    </div>
-                </div>
-            </div>
-        `;
-    
-        document.body.appendChild(modal);
-    
-        const bsModal = new bootstrap.Modal(modal);
-    
-        // Handle submit button click
-        document.getElementById('submitRevise').addEventListener('click', function() {
-            const userPrompt = document.getElementById('userPrompt').value;
-            bsModal.hide();
-            if (onSubmit) onSubmit(userPrompt);
-        });
-    
-        // Handle Enter key in textarea (but not Shift+Enter for new lines)
-        document.getElementById('userPrompt').addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                const userPrompt = document.getElementById('userPrompt').value;
-                bsModal.hide();
-                if (onSubmit) onSubmit(userPrompt);
-            }
-        });
-    
-        // Clean up after modal is hidden
-        modal.addEventListener('hidden.bs.modal', function() {
-            modal.remove();
-        });
-    
-        bsModal.show();
-        
-        // Focus the textarea when the modal is shown
-        modal.addEventListener('shown.bs.modal', function() {
-            document.getElementById('userPrompt').focus();
-        });
-    }
+registerCustomQuillFeatures();
 
     class QuillHandler {
         // Configuration constants
@@ -254,9 +172,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // State management
-            this.llmSuggestionRange = null;
-            this.originalSelectionRange = null; // Store original selection for revisions
-            this.abortController = null;
             this.actionBeats = this.loadActionBeats();
 
             this.quill = this.initializeEditor();
@@ -265,6 +180,15 @@ document.addEventListener('DOMContentLoaded', () => {
             this.editorNode.quill = this.quill;
             // Also store the handler instance itself for access to its methods
             this.editorNode.quillHandler = this;
+
+            // Bind the prominent AI Writing button (rendered by the quill_editor macro)
+            const aiButton = document.getElementById(`${editorId}-ai-button`);
+            if (aiButton) {
+                aiButton.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    this.initiateLlm();
+                });
+            }
 
             this.loadInitialContent();
             this.loadFontSize();
@@ -292,7 +216,6 @@ document.addEventListener('DOMContentLoaded', () => {
                             ['bold', 'italic', 'underline'],
                             [{ 'list': 'ordered' }, { 'list': 'bullet' }],
                             ['divider'],
-                            ['runLlm', 'accept', 'reject'],
                             ['showHtml', 'showMarkdown'],
                             ['increaseFontSize', 'decreaseFontSize'],
                             ['clean']
@@ -352,9 +275,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 },
                 'increaseFontSize': () => this.adjustFontSize(QuillHandler.FONT_STEP),
                 'decreaseFontSize': () => this.adjustFontSize(-QuillHandler.FONT_STEP),
-                'runLlm': () => this.initiateLlm(),
-                'accept': () => this.acceptLlmSuggestion(),
-                'reject': () => this.rejectLlmSuggestion(),
                 'clean': () => this.cleanHighlightFormatting()
             };
         }
@@ -441,9 +361,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const keyMap = {
-                '\\': this.initiateLlm,
-                '=': this.acceptLlmSuggestion,
-                'Escape': this.rejectLlmSuggestion
+                '\\': this.initiateLlm
             };
 
             if (keyMap[e.key]) {
@@ -455,152 +373,244 @@ document.addEventListener('DOMContentLoaded', () => {
         // --- LLM Handling ---
 
         initiateLlm() {
-            this.rejectLlmSuggestion(); // Clear any previous state
-        
-            // Get current selection
-            const range = this.quill.getSelection() || { index: this.quill.getLength(), length: 0 };
+            // Get current selection. Quill returns {index:0,length:0} on a fresh
+            // editor (rather than null), so treat a zero-length range as a cursor.
+            const selection = this.quill.getSelection();
+            const range = selection || { index: this.quill.getLength(), length: 0 };
             const isSelection = range.length > 0;
-        
+            let passage;
+            let ctxIndex;
+
             if (isSelection) {
-                // It's a revision
-                const context = this.quill.getText(range.index, range.length);
-                this.originalSelectionRange = { ...range }; // Store the selection
-        
-                showReviseModal(context, (userPrompt) => {
-                    this.runLlm(context, userPrompt, this.originalSelectionRange).then(() => {
-                        this.quill.focus();
-                    });
-                });
+                passage = this.quill.getText(range.index, range.length);
+                ctxIndex = range.index;
             } else {
-                // It's a continuation
-                const context = this.quill.getText(0, range.index);
-                this.runLlm(context, '', range);
+                ctxIndex = range.index;
+                passage = ctxIndex > 0
+                    ? this.quill.getText(0, ctxIndex)
+                    : this.quill.getText();
             }
+
+            if (!passage.trim()) {
+                return;
+            }
+
+            this.openAiModal({
+                mode: isSelection ? 'revise' : 'continue',
+                passage,
+                range: { index: ctxIndex, length: isSelection ? range.length : 0 }
+            });
         }
 
-        async runLlm(context, userPrompt = '', range) {
-            const isSelection = range.length > 0;
-            const apiUrl = isSelection ? QuillHandler.API_REVISE_STREAM : QuillHandler.API_CONTINUE_STREAM;
-        
-            let insertAt = range.index + range.length;
-            if (isSelection) {
-                this.quill.insertText(insertAt, ' ', Quill.sources.USER); // Add space after selection
-                insertAt += 1;
+        openAiModal({ mode, passage, range }) {
+            const isRevise = mode === 'revise';
+            const title = isRevise ? 'Revise Text' : 'Continue Writing';
+            const actionLabel = isRevise ? 'Revise' : 'Continue';
+            const contextLabel = isRevise ? 'Text to Revise' : 'Current Text';
+            const acceptanceNote = isRevise
+                ? 'Accepting replaces the selected passage with the suggestion.'
+                : 'Accepting inserts the suggestion at the cursor position.';
+            const escapedPassage = passage.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+            // Remove any existing AI modals
+            const existingModal = document.getElementById('aiModal');
+            if (existingModal) {
+                existingModal.remove();
             }
-        
-            // If we're doing a revision, clear any existing highlighted text from previous revisions
-            if (isSelection && this.llmSuggestionRange) {
-                this.clearHighlightedText();
-            }
-        
-            this.llmSuggestionRange = { index: insertAt, length: 0 };
-            this.abortController = new AbortController();
-        
-            // Prepare the request body, including userPrompt if it exists
-            const requestBody = { context, action_beats: this.actionBeats };
-            if (userPrompt) {
-                requestBody.user_prompt = userPrompt;
-            }
-        
-            try {
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(requestBody),
-                    signal: this.abortController.signal
-                });
-        
-                if (!response.body) throw new Error('ReadableStream not available.');
-        
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-        
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-        
-                    const chunk = decoder.decode(value, { stream: true });
-                    const lines = chunk.split('\n');
-        
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const jsonString = line.substring(6);
-                            if (!jsonString) continue;
-        
-                            try {
-                                const data = JSON.parse(jsonString);
-                                if (data.content === '[DONE]') return;
-                                if (data.content) {
-                                    this.quill.insertText(insertAt, data.content, 'highlight', true, Quill.sources.API);
-                                    this.llmSuggestionRange.length += data.content.length;
-                                    insertAt += data.content.length;
+
+            // Create modal elements
+            const modal = document.createElement('div');
+            modal.className = 'modal fade';
+            modal.id = 'aiModal';
+            modal.tabIndex = -1;
+            modal.innerHTML = `
+                <div class="modal-dialog modal-xl modal-fullscreen-lg-down">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">${title}</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">${contextLabel}:</label>
+                                <div class="border rounded p-3 bg-body-secondary" style="max-height: 10em; overflow-y: auto;">
+                                    <pre class="mb-0" style="white-space: pre-wrap; word-wrap: break-word;"><code>${escapedPassage}</code></pre>
+                                </div>
+                            </div>
+                            <div class="mb-3 d-none" id="aiSuggestionSection">
+                                <label class="form-label fw-bold">Suggested Replacement:</label>
+                                <div class="border rounded p-3 bg-body-secondary" id="aiSuggestionBox"
+                                     style="max-height: 18em; min-height: 6em; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;"></div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="aiUserPrompt" class="form-label">Additional Instructions? (Optional)</label>
+                                <textarea class="form-control" id="aiUserPrompt" rows="2"
+                                          placeholder="Enter any additional instructions for generating the suggestion..."></textarea>
+                            </div>
+                            <p class="text-muted small mb-0">${acceptanceNote}</p>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" id="aiCancelBtn" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-primary" id="aiStartBtn">${actionLabel}</button>
+                            <button type="button" class="btn btn-warning d-none" id="aiStopBtn"><i class="bi bi-stop-fill me-1"></i>Stop</button>
+                            <button type="button" class="btn btn-success d-none" id="aiAcceptBtn"><i class="bi bi-check-lg me-1"></i>Accept</button>
+                            <button type="button" class="btn btn-outline-danger d-none" id="aiRejectBtn"><i class="bi bi-x-lg me-1"></i>Reject</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            const bsModal = new bootstrap.Modal(modal);
+            const promptInput = modal.querySelector('#aiUserPrompt');
+            const suggestionSection = modal.querySelector('#aiSuggestionSection');
+            const suggestionBox = modal.querySelector('#aiSuggestionBox');
+            const startBtn = modal.querySelector('#aiStartBtn');
+            const stopBtn = modal.querySelector('#aiStopBtn');
+            const acceptBtn = modal.querySelector('#aiAcceptBtn');
+            const rejectBtn = modal.querySelector('#aiRejectBtn');
+            const cancelBtn = modal.querySelector('#aiCancelBtn');
+
+            let suggestionText = '';
+            let controller = null;
+
+            const updateFooter = (state) => {
+                const { start, stop, accept, reject } = state;
+                startBtn.classList.toggle('d-none', !start);
+                stopBtn.classList.toggle('d-none', !stop);
+                acceptBtn.classList.toggle('d-none', !accept);
+                rejectBtn.classList.toggle('d-none', !reject);
+                cancelBtn.textContent = (start || stop) ? 'Cancel' : 'Close';
+            };
+
+            const stopStream = () => {
+                if (controller) {
+                    controller.abort();
+                    controller = null;
+                }
+            };
+
+            const beginStream = async () => {
+                const userPrompt = promptInput.value;
+                const apiUrl = isRevise ? QuillHandler.API_REVISE_STREAM : QuillHandler.API_CONTINUE_STREAM;
+                const requestBody = { context: passage, action_beats: this.actionBeats };
+                if (userPrompt) {
+                    requestBody.user_prompt = userPrompt;
+                }
+
+                suggestionText = '';
+                suggestionBox.textContent = '';
+                const spinner = document.createElement('span');
+                spinner.className = 'spinner-border spinner-border-sm ';
+                spinner.setAttribute('role', 'status');
+                suggestionBox.appendChild(spinner);
+                suggestionSection.classList.remove('d-none');
+
+                updateFooter({ start: false, stop: true, accept: false, reject: false });
+                promptInput.disabled = true;
+                startBtn.disabled = true;
+
+                const ac = new AbortController();
+                controller = ac;
+
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(requestBody),
+                        signal: ac.signal
+                    });
+
+                    if (!response.body) throw new Error('ReadableStream not available.');
+
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        const chunk = decoder.decode(value, { stream: true });
+                        const lines = chunk.split('\n');
+
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                const jsonString = line.substring(6);
+                                if (!jsonString) continue;
+
+                                try {
+                                    const data = JSON.parse(jsonString);
+                                    if (data.content === '[DONE]') return;
+                                    if (data.content) {
+                                        if (spinner.isConnected) spinner.remove();
+                                        suggestionText += data.content;
+                                        suggestionBox.appendChild(document.createTextNode(data.content));
+                                        suggestionBox.scrollTop = suggestionBox.scrollHeight;
+                                    }
+                                } catch (e) {
+                                    console.error('Error parsing stream data:', e);
                                 }
-                            } catch (e) {
-                                console.error('Error parsing stream data:', e);
                             }
                         }
                     }
+                } catch (error) {
+                    if (error.name !== 'AbortError') {
+                        console.error('Error fetching LLM stream:', error);
+                    }
+                } finally {
+                    controller = null;
+                    if (spinner.isConnected) spinner.remove();
+                    promptInput.disabled = false;
+                    startBtn.disabled = false;
+                    updateFooter({ start: false, stop: false, accept: true, reject: true });
                 }
-            } catch (error) {
-                if (error.name !== 'AbortError') {
-                    console.error('Error fetching LLM stream:', error);
-                }
-            } finally {
-                this.abortController = null;
-                if (isSelection) {
-                    this.quill.setSelection(this.originalSelectionRange.index, this.originalSelectionRange.length, Quill.sources.SILENT);
-                }
-            }
-        }
+            };
 
-        acceptLlmSuggestion() {
-            if (this.llmSuggestionRange) {
-                this.quill.formatText(
-                    this.llmSuggestionRange.index,
-                    this.llmSuggestionRange.length,
-                    'highlight', false, Quill.sources.API
-                );
-                this.quill.setSelection(this.llmSuggestionRange.index + this.llmSuggestionRange.length, 0, Quill.sources.USER);
-                this.llmSuggestionRange = null;
-            }
-        }
+            const applySuggestion = () => {
+                if (!suggestionText) return;
+                if (isRevise) {
+                    this.quill.deleteText(range.index, range.length, Quill.sources.USER);
+                }
+                this.quill.insertText(range.index, suggestionText, Quill.sources.USER);
+                this.quill.setSelection(range.index + suggestionText.length, 0, Quill.sources.USER);
+                this.quill.focus();
+            };
 
-        rejectLlmSuggestion() {
-            if (this.abortController) {
-                this.abortController.abort();
-            }
-            if (this.llmSuggestionRange) {
-                const originalIndex = this.llmSuggestionRange.index;
-                this.quill.deleteText(this.llmSuggestionRange.index, this.llmSuggestionRange.length, Quill.sources.API);
-                this.llmSuggestionRange = null;
-                this.quill.setSelection(originalIndex, 0, Quill.sources.USER);
-            }
-            if (this.originalSelectionRange) {
-                this.quill.setSelection(this.originalSelectionRange.index, this.originalSelectionRange.length, Quill.sources.SILENT);
-            }
+            startBtn.addEventListener('click', beginStream);
+
+            stopBtn.addEventListener('click', stopStream);
+
+            acceptBtn.addEventListener('click', () => {
+                applySuggestion();
+                bsModal.hide();
+            });
+
+            rejectBtn.addEventListener('click', () => {
+                bsModal.hide();
+            });
+
+            promptInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!startBtn.classList.contains('d-none') && !startBtn.disabled) {
+                        beginStream();
+                    }
+                }
+            });
+
+            // Clean up and abort any in-flight stream when the modal is closed
+            modal.addEventListener('hidden.bs.modal', () => {
+                stopStream();
+                modal.remove();
+            });
+
+            bsModal.show();
+
+            promptInput.focus();
         }
 
         // --- Formatting & Content ---
-
-        /**
-         * Check if there's highlighted text in the editor (indicating an active revision)
-         * @returns {boolean} True if there's highlighted text, false otherwise
-         */
-        hasHighlightedText() {
-            const contents = this.quill.getContents();
-            return contents.ops.some(op => op.attributes && op.attributes.highlight);
-        }
-
-        /**
-         * Clear highlighted text from the editor
-         */
-        clearHighlightedText() {
-            if (this.llmSuggestionRange) {
-                // Remove the highlighted text
-                this.quill.deleteText(this.llmSuggestionRange.index, this.llmSuggestionRange.length, Quill.sources.API);
-                this.llmSuggestionRange = null;
-            }
-        }
 
         cleanHighlightFormatting() {
             const delta = this.quill.getContents();

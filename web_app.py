@@ -1179,6 +1179,7 @@ def inline_llm_continue_stream():
     """Get a streaming response from the LLM based on the provided context."""
     data = request.json
     context = data.get("context", "")
+    user_prompt = data.get("user_prompt", "")
     # action_beats = data.get("action_beats", "")
 
     if not context:
@@ -1197,7 +1198,7 @@ def inline_llm_continue_stream():
         "inline_continuer",
         prompts.INLINE_CONTINUE_PROMPT.format(
             context=context,
-            user_input="",
+            user_input=user_prompt,
             action_beats="",
         ),
     )

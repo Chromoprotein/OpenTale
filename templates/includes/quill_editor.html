@@ -1,4 +1,12 @@
 {% macro quill_editor(id, name, content, action_beats=None) %}
+    <div class="d-flex align-items-center gap-2 mb-2 ai-quill-toolbar">
+        <button type="button" class="btn btn-primary btn-sm" id="{{ id }}-ai-button" title="Revise selected text or continue writing with AI">
+            <i class="bi bi-magic me-1"></i>AI Writing
+        </button>
+        <span class="text-muted small">
+            Select text and click <strong>AI Writing</strong> to revise it, or place the cursor where you want more text and click it to continue (hotkey <kbd>\</kbd>).
+        </span>
+    </div>
     <div id="{{ id }}" class="quill-editor" style="height: 300px;"></div>
     <input type="hidden" id="{{ id }}-hidden" name="{{ name }}" data-initial-content='{{ content | tojson }}' {% if action_beats %}data-action-beats='{{ action_beats | tojson }}'{% endif %}>
 {% endmacro %}
