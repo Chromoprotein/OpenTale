@@ -1,8 +1,15 @@
-<div class="list-group" data-total-chapters="{{ chapters_paginated.total_chapters }}">
+<div class="list-group" data-total-chapters="{{ chapters_paginated.total_chapters }}" data-content-chapters='{{ chapters | selectattr("has_content") | map(attribute="chapter_number") | list | tojson }}'>
     {% for ch in chapters_paginated.chapters %}
+            {% set link_enabled = not is_editor_view or ch.has_content %}
+            {% if link_enabled %}
             <a href="/{{ 'chapter_editor' if is_editor_view else 'chapter' }}/{{ ch.chapter_number }}?per_page={{ chapters_paginated.per_page }}"
                class="list-group-item list-group-item-action chapter-link {% if ch.chapter_number == chapter.chapter_number %}active{% endif %}"
                data-chapter-number="{{ ch.chapter_number }}">
+            {% else %}
+            <div class="list-group-item chapter-link disabled"
+                 aria-disabled="true"
+                 data-chapter-number="{{ ch.chapter_number }}">
+            {% endif %}
                 <div class="d-flex justify-content-between align-items-center">
                     <span>Chapter {{ ch.chapter_number }}: {{ ch.title }}</span>
                     <div class="d-flex flex-column" style="width: 90px;">
@@ -11,7 +18,11 @@
                         {% if ch.has_been_reviewed %}<span class="badge bg-info w-100 text-center" style="font-size: 0.60em !important; padding: 4px;">Reviewed</span>{% endif %}
                     </div>
                 </div>
+            {% if link_enabled %}
             </a>
+            {% else %}
+            </div>
+            {% endif %}
     {% endfor %}
     <div class="p-2">
         <p class="small text-muted mb-1 text-center">

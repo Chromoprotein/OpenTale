@@ -91,6 +91,8 @@ def get_chapters():
                 chapters = []
 
     # Add 'has_content', 'has_been_reviewed', and 'has_action_beats' flags to each chapter
+    settings = get_settings()
+    chapter_styles = settings.get("chapters", {})
     for chapter in chapters:
         chapter_file_path = os.path.join(
             CHAPTERS_DIR, f"chapter_{chapter['chapter_number']}{TEXT_EXTENSION}"
@@ -101,10 +103,17 @@ def get_chapters():
         editor_chapter_file_path = os.path.join(
             CHAPTERS_DIR, f"chapter_{chapter['chapter_number']}_editor{TEXT_EXTENSION}"
         )
-        chapter["has_been_reviewed"] = (
+        has_wip = (
             os.path.exists(editor_chapter_file_path)
             and os.path.getsize(editor_chapter_file_path) > 0
         )
+        # A chapter counts as reviewed when it has been promoted through the
+        # review workflow (persisted flag) OR a WIP review draft still exists.
+        # This survives overwrite/delete-WIP, which remove the WIP file.
+        was_promoted = bool(
+            (chapter_styles.get(str(chapter["chapter_number"])) or {}).get("reviewed")
+        )
+        chapter["has_been_reviewed"] = has_wip or was_promoted
         action_beats_file_path = os.path.join(
             CHAPTERS_DIR,
             f"chapter_{chapter['chapter_number']}_action_beats{TEXT_EXTENSION}",
@@ -222,6 +231,25 @@ def save_settings(settings):
     """Save settings to file."""
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2)
+
+
+DEFAULT_POV = "Third-person limited"
+DEFAULT_TENSE = "Past tense"
+
+
+def _get_chapter_style(settings, chapter_number):
+    """Return (point_of_view, tense) for a chapter, in precedence order:
+    the chapter's own saved value, then the book-wide last-used style,
+    then the out-of-the-box defaults."""
+    style = settings.get("chapters", {}).get(str(chapter_number)) or {}
+    default_style = settings.get("default_style") or {}
+    pov = (
+        style.get("point_of_view")
+        or default_style.get("point_of_view")
+        or DEFAULT_POV
+    )
+    tense = style.get("tense") or default_style.get("tense") or DEFAULT_TENSE
+    return pov, tense
 
 
 @app.route("/")
@@ -879,10 +907,8 @@ def chapter(chapter_number):
     action_beats_content = get_action_beats(chapter_number)
     settings = get_settings()
 
-    # Get chapter-specific settings or use defaults
-    chapter_settings = settings.get("chapters", {}).get(str(chapter_number), {})
-    point_of_view = chapter_settings.get("point_of_view", "Third-person limited")
-    tense = chapter_settings.get("tense", "Past tense")
+    # Get chapter-specific settings or the book-wide default
+    point_of_view, tense = _get_chapter_style(settings, chapter_number)
 
     # Get pagination data for chapter navigation
     chapters_paginated = get_paginated_chapters_from_request(
@@ -926,8 +952,9 @@ def _handle_chapter_stream(chapter_number, agent_name):
     # Get any additional context from the chat interface
     additional_context = data.get("additional_context", "")
     master_prompt = data.get("master_prompt", "")
-    point_of_view = data.get("point_of_view", "Third-person limited")
-    tense = data.get("tense", "Past tense")
+    default_pov, default_tense = _get_chapter_style(get_settings(), chapter_number)
+    point_of_view = data.get("point_of_view", default_pov)
+    tense = data.get("tense", default_tense)
     action_beats = data.get("action_beats_content", "")
     show_prompt = data.get("show_prompt", False)
     chapter_content = data.get("chapter_content", "")  # For editor
@@ -1010,14 +1037,25 @@ def _handle_chapter_stream(chapter_number, agent_name):
                     # Yield each piece of content as a server-sent event
                     yield f"data: {json.dumps({'content': content})}\n\n"
 
-            # Once streaming is complete, save the full content to a file
-            complete_content = "".join(collected_content)
-            file_suffix = "_editor" if agent_name == "editor" else ""
-            chapter_path = os.path.join(
-                CHAPTERS_DIR, f"chapter_{chapter_number}{file_suffix}{TEXT_EXTENSION}"
-            )
-            with open(chapter_path, "w", encoding="utf-8") as f:
-                f.write(complete_content)
+            # Once streaming is complete, save the full content to a file.
+            # The editor agent does not auto-save; the reviewed WIP is only
+            # written to disk when the user explicitly saves it.
+            if agent_name != "editor":
+                complete_content = "".join(collected_content)
+                chapter_path = os.path.join(
+                    CHAPTERS_DIR, f"chapter_{chapter_number}{TEXT_EXTENSION}"
+                )
+                with open(chapter_path, "w", encoding="utf-8") as f:
+                    f.write(complete_content)
+
+                # A freshly generated chapter is not reviewed yet.
+                settings_to_save = get_settings()
+                chapter_style = settings_to_save.get("chapters", {}).get(
+                    str(chapter_number)
+                )
+                if chapter_style and chapter_style.get("reviewed"):
+                    chapter_style.pop("reviewed", None)
+                    save_settings(settings_to_save)
 
             # Send a final marker to indicate the end of the stream
             yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
@@ -1054,6 +1092,15 @@ def chapter_editor(chapter_number):
             "error.html", message=f"Chapter {chapter_number} not found"
         )
 
+    # If the chapter has not been written yet, send the user to the author page
+    if not chapter_data["has_content"]:
+        flash(
+            f"Chapter {chapter_number} has not been written yet. "
+            "Write it before using the review editor.",
+            "info",
+        )
+        return redirect(f"/chapter/{chapter_number}")
+
     settings = get_settings()
 
     # Get existing chapter content for editing
@@ -1083,14 +1130,23 @@ def chapter_editor(chapter_number):
     action_beats_content = get_action_beats(chapter_number)
     settings = get_settings()
 
-    # Get point of view and tense from settings
-    chapter_settings = settings.get("chapters", {}).get(str(chapter_number), {})
-    point_of_view = chapter_settings.get("point_of_view", "Third-person limited")
-    tense = chapter_settings.get("tense", "Past tense")
+    # Get point of view and tense from settings or the book-wide default
+    point_of_view, tense = _get_chapter_style(settings, chapter_number)
 
     # Get chapter navigation pagination
     chapters_paginated = get_paginated_chapters_from_request(
         request, chapters, chapter_number
+    )
+
+    # Find the nearest previous/next chapters that have content
+    content_chapters = sorted(
+        ch["chapter_number"] for ch in chapters if ch["has_content"]
+    )
+    prev_content_chapter = next(
+        (n for n in reversed(content_chapters) if n < chapter_number), None
+    )
+    next_content_chapter = next(
+        (n for n in content_chapters if n > chapter_number), None
     )
 
     # Render the chapter template with all the data
@@ -1107,6 +1163,8 @@ def chapter_editor(chapter_number):
         point_of_view=point_of_view,
         tense=tense,
         action_beats_content=action_beats_content,
+        prev_content_chapter=prev_content_chapter,
+        next_content_chapter=next_content_chapter,
     )
 
 
@@ -1265,6 +1323,75 @@ def save_chapter_editor(chapter_number):
     return jsonify({"success": True})
 
 
+@app.route("/chapter_overwrite/<int:chapter_number>", methods=["POST"])
+def chapter_overwrite(chapter_number):
+    """Overwrite the canonical chapter with the given content and clear the WIP."""
+    chapter_content = request.form.get("chapter_content")
+
+    # Strip extra newlines at the beginning and normalize newlines
+    chapter_content = chapter_content.strip()
+
+    chapter_path = os.path.join(
+        CHAPTERS_DIR, f"chapter_{chapter_number}{TEXT_EXTENSION}"
+    )
+    with open(chapter_path, "w") as f:
+        f.write(chapter_content)
+
+    # The promoted draft becomes the canonical version; remove the old WIP.
+    wip_path = os.path.join(
+        CHAPTERS_DIR, f"chapter_{chapter_number}_editor{TEXT_EXTENSION}"
+    )
+    if os.path.exists(wip_path):
+        os.remove(wip_path)
+
+    # Record that this chapter has been reviewed (promoted) so the Reviewed
+    # status survives the WIP file being removed.
+    settings = get_settings()
+    settings.setdefault("chapters", {}).setdefault(str(chapter_number), {})[
+        "reviewed"
+    ] = True
+    save_settings(settings)
+
+    return jsonify({"success": True})
+
+
+@app.route("/delete_chapter_editor/<int:chapter_number>", methods=["POST"])
+def delete_chapter_editor(chapter_number):
+    """Delete the saved WIP review so it can be recreated."""
+    wip_path = os.path.join(
+        CHAPTERS_DIR, f"chapter_{chapter_number}_editor{TEXT_EXTENSION}"
+    )
+    if os.path.exists(wip_path):
+        os.remove(wip_path)
+
+    return jsonify({"success": True})
+
+
+@app.route("/delete_chapter/<int:chapter_number>", methods=["POST"])
+def delete_chapter(chapter_number):
+    """Delete the canonical chapter content (and its WIP) so it can be regenerated."""
+    chapter_path = os.path.join(
+        CHAPTERS_DIR, f"chapter_{chapter_number}{TEXT_EXTENSION}"
+    )
+    if os.path.exists(chapter_path):
+        os.remove(chapter_path)
+
+    wip_path = os.path.join(
+        CHAPTERS_DIR, f"chapter_{chapter_number}_editor{TEXT_EXTENSION}"
+    )
+    if os.path.exists(wip_path):
+        os.remove(wip_path)
+
+    # The chapter content is gone, so it can no longer be considered reviewed.
+    settings = get_settings()
+    chapter_style = settings.get("chapters", {}).get(str(chapter_number))
+    if chapter_style and chapter_style.get("reviewed"):
+        chapter_style.pop("reviewed", None)
+        save_settings(settings)
+
+    return jsonify({"success": True})
+
+
 @app.route("/save_master_prompt", methods=["POST"])
 def save_master_prompt():
     """Save the master prompt to a file."""
@@ -1289,8 +1416,10 @@ def save_chapter_style(chapter_number):
 
     if point_of_view is not None:
         settings["chapters"][str(chapter_number)]["point_of_view"] = point_of_view
+        settings.setdefault("default_style", {})["point_of_view"] = point_of_view
     if tense is not None:
         settings["chapters"][str(chapter_number)]["tense"] = tense
+        settings.setdefault("default_style", {})["tense"] = tense
 
     save_settings(settings)
     return jsonify({"success": True})
@@ -1470,15 +1599,38 @@ def action_beats_chat(chapter_number):
             "error.html", message=f"Chapter {chapter_number} not found"
         )
 
+    # If the chapter has not been written yet, send the user to the author page
+    if not chapter_data["has_content"]:
+        flash(
+            f"Chapter {chapter_number} has not been written yet. "
+            "Write it before reviewing its action beats.",
+            "info",
+        )
+        return redirect(f"/chapter/{chapter_number}")
+
     action_beats_content = get_action_beats(chapter_number)
     settings = get_settings()
     num_beats = settings.get("num_beats", 12)
+
+    # Find the nearest previous/next chapters that have content
+    content_chapters = sorted(
+        ch["chapter_number"] for ch in chapters if ch["has_content"]
+    )
+    prev_content_chapter = next(
+        (n for n in reversed(content_chapters) if n < chapter_number), None
+    )
+    next_content_chapter = next(
+        (n for n in content_chapters if n > chapter_number), None
+    )
+
     return render_template(
         "action_beats_chat.html",
         chapter=chapter_data,
         action_beats_content=action_beats_content,
         chapters=chapters,  # Pass the chapters list
         num_beats=num_beats,
+        prev_content_chapter=prev_content_chapter,
+        next_content_chapter=next_content_chapter,
     )
 
 

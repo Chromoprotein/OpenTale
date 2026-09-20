@@ -12,11 +12,11 @@
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <div class="d-flex align-items-center flex-wrap gap-2 ms-auto">
                 <a href="/chapter/{{ chapter.chapter_number }}" class="btn btn-outline-secondary btn-sm">&laquo; Back to Chapter</a>
-                {% if chapter.chapter_number > 1 %}
-                <a href="/action_beats_chat/{{ chapter.chapter_number - 1 }}" class="btn btn-outline-secondary btn-sm">&laquo; Prev</a>
+                {% if prev_content_chapter is not none %}
+                <a href="/action_beats_chat/{{ prev_content_chapter }}" class="btn btn-outline-secondary btn-sm">&laquo; Prev</a>
                 {% endif %}
-                {% if chapter.chapter_number < chapters|length %}
-                <a href="/action_beats_chat/{{ chapter.chapter_number + 1 }}" class="btn btn-outline-secondary btn-sm">Next &raquo;</a>
+                {% if next_content_chapter is not none %}
+                <a href="/action_beats_chat/{{ next_content_chapter }}" class="btn btn-outline-secondary btn-sm">Next &raquo;</a>
                 {% endif %}
             </div>
         </div>

@@ -493,6 +493,49 @@ function handleChapterPagination() {
     const currentPage = parseInt(url.searchParams.get('page') || '1', 10);
     const perPage = parseInt(url.searchParams.get('per_page') || '10', 10);
 
+    // Chapter numbers that have actual content, so editor-view navigation can
+    // skip chapters that haven't been written yet.
+    let contentChapters = [];
+    if (chapterNavContainer && chapterNavContainer.dataset.contentChapters) {
+        try {
+            contentChapters = JSON.parse(chapterNavContainer.dataset.contentChapters);
+        } catch (e) {
+            contentChapters = [];
+        }
+    }
+
+    const isEditorView = () => {
+        const pathParts = window.location.pathname.split('/').filter(p => p);
+        return pathParts[0] === 'chapter_editor';
+    };
+
+    // Resolve a chapter to navigate to in editor view: only chapters that
+    // actually have content are reachable, so skip ahead to the first (or
+    // last) chapter with content. Returns null when nothing is available.
+    const guardChapter = (desired, mode) => {
+        if (!isEditorView()) {
+            return desired;
+        }
+        if (!Array.isArray(contentChapters) || contentChapters.length === 0) {
+            return null;
+        }
+        if (contentChapters.includes(desired)) {
+            return desired;
+        }
+        const sorted = contentChapters.slice().sort((a, b) => a - b);
+        return mode === 'first' ? sorted[0] : sorted[sorted.length - 1];
+    };
+
+    // Navigate to a chapter, letting the server pick the page containing it so
+    // the active chapter is always visible in the list.
+    const navigateToChapter = (chapterNumber) => {
+        if (chapterNumber == null) {
+            return;
+        }
+        url.searchParams.delete('page');
+        updateChapterView(chapterNumber);
+    };
+
     if (chaptersPerPageSelect) {
         chaptersPerPageSelect.value = perPage;
         chaptersPerPageSelect.addEventListener('change', (e) => {
@@ -531,8 +574,7 @@ function handleChapterPagination() {
 
     if (firstChapterBtn) {
         firstChapterBtn.addEventListener('click', () => {
-            url.searchParams.set('page', '1');
-            updateChapterView(1);
+            navigateToChapter(guardChapter(1, 'first'));
         });
     }
 
@@ -540,9 +582,7 @@ function handleChapterPagination() {
         lastChapterBtn.addEventListener('click', () => {
             const totalChapters = parseInt(chapterNavContainer.dataset.totalChapters, 10);
             if (totalChapters) {
-                const totalPages = Math.ceil(totalChapters / perPage);
-                url.searchParams.set('page', totalPages);
-                updateChapterView(totalChapters);
+                navigateToChapter(guardChapter(totalChapters, 'last'));
             }
         });
     }

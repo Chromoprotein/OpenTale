@@ -168,6 +168,7 @@
                         <div class="d-flex justify-content-between">
                             <div>
                                 <button type="submit" class="btn btn-success" id="saveChapterBtn">Save Chapter</button>
+                                <button type="button" class="btn btn-outline-danger" id="deleteChapterBtn"{% if not chapter_content %} disabled{% endif %}><i class="bi bi-trash3 me-1"></i>Delete Chapter</button>
                                 <a href="/chapter_editor/{{ chapter.chapter_number }}" class="btn btn-warning">Go To Chapter Review Editor</a>
                             </div>
                             <div>
@@ -359,6 +360,17 @@ $(document).ready(function() {
                 window.location.reload();
             }).fail(function() {
                 alert('Error deleting action beats. Please try again.');
+            });
+        });
+    });
+
+    // Delete Chapter
+    $('#deleteChapterBtn').click(function() {
+        confirmAction({ title: 'Delete Chapter', message: 'Delete the current chapter content (and its WIP review) for this chapter? This cannot be undone. You can regenerate the chapter afterwards.', confirmText: 'Delete' }, function() {
+            $.post(`/delete_chapter/{{ chapter.chapter_number }}`).done(function() {
+                window.location.reload();
+            }).fail(function() {
+                alert('Error deleting chapter. Please try again.');
             });
         });
     });

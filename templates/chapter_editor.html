@@ -13,7 +13,7 @@
         </div>
                 {% if not has_review %}
                 <div class="alert alert-warning alert-dismissible fade show" role="alert">
-                    <strong>This chapter has not been reviewed yet.</strong> The content below is the original version. Use the editing tools, like `Execute Chapter Review`, to create the first review.
+                    <strong>This chapter has not been reviewed yet.</strong> The content below is the current version. Use the editing tools, like `Execute Chapter Review`, to create the first WIP.
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
                 {% endif %}
@@ -154,6 +154,17 @@
                                 <button type="button" class="btn btn-info" id="showPromptBtn">Show Execute Chapter Review Prompt</button>
                                 <button id="clearChatBtn" class="btn btn-outline-secondary ms-2" disabled><i class="bi bi-trash me-1"></i>Clear Chat</button>
                             </div>
+                            <div class="mt-2">
+                                <span class="small text-muted me-2">Send to AI:</span>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="contextSource" id="ctxWip" value="wip"{% if has_review %} checked{% endif %}>
+                                    <label class="form-check-label small" for="ctxWip">WIP (draft in editor)</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="contextSource" id="ctxCurrent" value="current"{% if not has_review %} checked{% endif %}>
+                                    <label class="form-check-label small" for="ctxCurrent">Current chapter</label>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="col-md-4">
@@ -185,10 +196,11 @@
                 </div>
 
                 <div id="chapterContentContainer"{% if not original_chapter_content %} class="d-none"{% endif %}>
-                    <!-- Original Chapter Content -->
+                    <!-- Current (Canonical) Chapter Content -->
                     <div class="mb-4">
-                        <label for="originalChapterContentEditor-hidden" class="form-label">Original chapter content (read-only)</label>
-                        {{ quill_editor('originalChapterContentEditor', 'original_chapter_content', original_chapter_content) }}
+                        <label class="form-label">Current chapter (canonical version)</label>
+                        <div id="originalChapterContent" class="form-control original-chapter-content" style="height: 300px;"></div>
+                        <input type="hidden" id="originalChapterContentEditor-hidden" name="original_chapter_content" data-initial-content='{{ original_chapter_content | tojson }}'>
                     </div>
 
                     <!-- Editor Review Content -->
@@ -199,16 +211,17 @@
                         </div>
                         <div class="d-flex justify-content-between">
                             <div class="d-flex gap-2">
-                                <button type="button" class="btn btn-outline-primary" id="acceptChapterBtn" disabled><i class="bi bi-check-lg me-1"></i>Accept &amp; Clear Chat</button>
-                                <button type="submit" class="btn btn-success" id="saveChapterBtn">Save Chapter Review Content</button>
+                                <button type="submit" class="btn btn-success" id="saveChapterBtn"{% if not chapter_content %} disabled{% endif %}>Save as WIP</button>
+                                <button type="button" class="btn btn-danger" id="overwriteChapterBtn"{% if not chapter_content %} disabled{% endif %}><i class="bi bi-arrow-repeat me-1"></i>Save &amp; Overwrite Current Chapter</button>
+                                <button type="button" class="btn btn-outline-danger" id="deleteWipBtn"{% if not has_review and not chapter_content %} disabled{% endif %}><i class="bi bi-trash3 me-1"></i>Delete WIP</button>
                                 <a href="/chapter/{{ chapter.chapter_number }}" class="btn btn-warning">Return to Chapter View</a>
                             </div>
                             <div>
-                                {% if chapter.chapter_number > 1 %}
-                                <a href="/chapter_editor/{{ chapter.chapter_number - 1 }}" class="btn btn-primary">&laquo; Previous Chapter</a>
+                                {% if prev_content_chapter is not none %}
+                                <a href="/chapter_editor/{{ prev_content_chapter }}" class="btn btn-primary">&laquo; Previous Chapter</a>
                                 {% endif %}
-                                {% if chapter.chapter_number < chapters|length %}
-                                <a href="/chapter_editor/{{ chapter.chapter_number + 1 }}" class="btn btn-primary">Next Chapter &raquo;</a>
+                                {% if next_content_chapter is not none %}
+                                <a href="/chapter_editor/{{ next_content_chapter }}" class="btn btn-primary">Next Chapter &raquo;</a>
                                 {% endif %}
                             </div>
                         </div>
@@ -232,12 +245,70 @@
 
 <script>
 $(document).ready(function() {
+    // Render the canonical chapter content (markdown) into the read-only box.
+    // Keeps the hidden input's value in sync so reads via .val() work.
+    function setCanonicalContent(markdown) {
+        const $box = $('#originalChapterContent');
+        const input = document.getElementById('originalChapterContentEditor-hidden');
+        if (!$box.length) return;
+        if (input) {
+            input.value = markdown || '';
+        }
+        if (!markdown) {
+            $box.text('');
+            return;
+        }
+        try {
+            if (window.showdown) {
+                $box.html(new showdown.Converter().makeHtml(markdown));
+            } else {
+                $box.text(markdown);
+            }
+        } catch (e) {
+            $box.text(markdown);
+        }
+    }
+
+    (function() {
+        const input = document.getElementById('originalChapterContentEditor-hidden');
+        if (!input) return;
+        let initialContent = '';
+        try {
+            initialContent = JSON.parse(input.dataset.initialContent);
+        } catch (e) {
+            initialContent = input.dataset.initialContent;
+        }
+        setCanonicalContent(initialContent);
+    })();
+
+    // Enable/disable the review actions based on whether the editor has content.
+    // The WIP can still be deleted if a saved WIP existed when the page loaded.
+    const hadSavedWip = {{ 'true' if has_review else 'false' }};
+    function updateReviewSaveButtons() {
+        const hasContent = ($('#chapterContentEditor-hidden').val() || '').trim().length > 0;
+        $('#saveChapterBtn').prop('disabled', !hasContent);
+        $('#overwriteChapterBtn').prop('disabled', !hasContent);
+        $('#deleteWipBtn').prop('disabled', !hasContent && !hadSavedWip);
+    }
+
+    // The Quill editor initializes after this ready block (quill-handler.js runs
+    // later on DOMContentLoaded), so latch onto it with a short retry.
+    function latchReviewEditor() {
+        const el = document.getElementById('chapterContentEditor');
+        if (el && el.quill) {
+            el.quill.on('text-change', updateReviewSaveButtons);
+            updateReviewSaveButtons();
+        } else {
+            setTimeout(latchReviewEditor, 50);
+        }
+    }
+    latchReviewEditor();
+
     // Chat history (persisted in localStorage)
     const CHAT_KEY = 'opentale_chat_chapter_editor_{{ chapter.chapter_number }}';
     let chatHistory = loadChatHistory(CHAT_KEY) || [];
     let chatReplyTimer = null;
     const chatButtons = {
-        acceptBtn: '#acceptChapterBtn',
         sendBtn: '#sendMessageBtn',
         messageInput: '#userMessage',
         clearBtn: '#clearChatBtn'
@@ -362,7 +433,9 @@ $(document).ready(function() {
         const pointOfView = $('#pointOfView').val();
         const tense = $('#tense').val();
         const action_beats_content = $('#actionBeatsEditor-hidden').val();
-        const chapterContent = $('#originalChapterContentEditor-hidden').val(); // Use original content for editing
+        const useWip = $('input[name="contextSource"]:checked').val() === 'wip';
+        const chapterContent = (useWip ? $('#chapterContentEditor-hidden').val() : '')
+            || $('#originalChapterContentEditor-hidden').val(); // Fall back to the canonical chapter
 
         const requestData = {
             additional_context: additionalContext,
@@ -370,7 +443,7 @@ $(document).ready(function() {
             point_of_view: pointOfView,
             tense: tense,
             action_beats_content: action_beats_content,
-            chapter_content: chapterContent // This is the original content
+            chapter_content: chapterContent // This is the context the AI edits
         };
 
         let fullContent = '';
@@ -450,14 +523,6 @@ $(document).ready(function() {
         });
     });
 
-    // Accept chapter review and clear the chat
-    $('#acceptChapterBtn').click(function() {
-        chatHistory = [];
-        clearChatHistory(CHAT_KEY);
-        $('#chatMessages').empty();
-        updateChatButtonStates(chatHistory, chatButtons);
-    });
-    
     // Add message to chat display
     function addMessageToChat(sender, message) {
         const messageDiv = $('<div>').addClass('mb-3');
@@ -522,6 +587,66 @@ $(document).ready(function() {
                 $('#savingIndicator').addClass('d-none');
                 $('#saveChapterBtn').prop('disabled', false);
             }
+        });
+    });
+
+    // Overwrite the canonical chapter with the current review content
+    $('#overwriteChapterBtn').click(function() {
+        const content = $('#chapterContentEditor-hidden').val();
+        if (!content || !content.trim()) {
+            alert('The review content is empty. Nothing to overwrite.');
+            return;
+        }
+        if (!confirm('Replace the current chapter with the review content above? This cannot be undone.')) {
+            return;
+        }
+        const $btn = $('#overwriteChapterBtn');
+        $btn.prop('disabled', true);
+        $('#savingIndicator').removeClass('d-none');
+        $('#savedIndicator').addClass('d-none');
+
+        $.ajax({
+            type: 'POST',
+            url: '/chapter_overwrite/{{ chapter.chapter_number }}',
+            data: { chapter_content: content },
+            success: function() {
+                $('#savingIndicator').addClass('d-none');
+                $('#savedIndicator').removeClass('d-none');
+                setTimeout(function() {
+                    $('#savedIndicator').addClass('d-none');
+                }, 3000);
+                // Update the displayed canonical version in place
+                setCanonicalContent(content);
+            },
+            error: function() {
+                alert('Error overwriting chapter. Please try again.');
+                $('#savingIndicator').addClass('d-none');
+            },
+            complete: function() {
+                $btn.prop('disabled', false);
+            }
+        });
+    });
+
+    // Delete WIP
+    $('#deleteWipBtn').click(function() {
+        confirmAction({
+            title: 'Delete WIP',
+            message: 'Delete the saved WIP review for this chapter? The canonical chapter above will not be affected, but the review editor will be cleared. This cannot be undone.',
+            confirmText: 'Delete'
+        }, function() {
+            $.post('/delete_chapter_editor/{{ chapter.chapter_number }}')
+                .done(function() {
+                    // Clear the Quill editor in place; the text-change event
+                    // will disable the now-stale save/overwrite buttons.
+                    const el = document.getElementById('chapterContentEditor');
+                    if (el && el.quill) {
+                        el.quill.setText('');
+                    }
+                })
+                .fail(function() {
+                    alert('Error deleting WIP. Please try again.');
+                });
         });
     });
 
@@ -636,7 +761,9 @@ $(document).ready(function() {
         const pointOfView = $('#pointOfView').val();
         const tense = $('#tense').val();
         const action_beats_content = $('#actionBeatsEditor-hidden').val();
-        const chapterContent = $('#originalChapterContentEditor-hidden').val();
+        const useWip = $('input[name="contextSource"]:checked').val() === 'wip';
+        const chapterContent = (useWip ? $('#chapterContentEditor-hidden').val() : '')
+            || $('#originalChapterContentEditor-hidden').val(); // Fall back to the canonical chapter
 
         const requestData = {
             additional_context: additionalContext,

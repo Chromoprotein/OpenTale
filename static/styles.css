@@ -160,6 +160,24 @@ body {
 .ql-editor p {
     margin-bottom: 1em; /* Adjust the value to control spacing */
 }
+
+/* Read-only original chapter content box */
+.original-chapter-content {
+    overflow-y: auto;
+    overflow-x: hidden;
+    font-size: var(--quill-font-size, 16px);
+    line-height: 1.6;
+    font-family: sans-serif;
+    white-space: normal;
+    word-wrap: break-word;
+}
+.original-chapter-content pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+.original-chapter-content p:last-child {
+    margin-bottom: 0;
+}
 .ql-toolbar {
     display: flex;
     align-items: center;

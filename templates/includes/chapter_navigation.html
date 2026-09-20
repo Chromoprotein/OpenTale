@@ -14,11 +14,7 @@
                     </h4>
                     <p class="card-text small">{{ chapter.prompt[:100] }}{% if chapter.prompt|length > 100 %}...{% endif %}</p>
                     <a href="/chapter/{{ chapter.chapter_number }}" class="btn btn-sm btn-outline-primary">
-                        {% if chapter.has_content %}
-                        Edit This Chapter
-                        {% else %}
                         Write This Chapter
-                        {% endif %}
                     </a>
                 </div>
             </div>
