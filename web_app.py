@@ -653,6 +653,13 @@ def save_characters():
     """Save edited characters"""
     characters_content = request.form.get("characters")
 
+    # The character_generator prompt asks for a CHARACTER_PROFILES: header, but
+    # nothing consumes it, so drop it rather than persisting it. Tolerate the
+    # markdown-escaped underscore the model sometimes emits.
+    characters_content = re.sub(
+        r"^\s*CHARACTER[\\\\_]*PROFILES:\s*", "", characters_content
+    )
+
     # Save to file
     with open(CHARACTERS_FILE, "w") as f:
         f.write(characters_content)

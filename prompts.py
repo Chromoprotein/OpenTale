@@ -1,101 +1,12 @@
 """
-This module contains all the prompts used by the AI agents in the book writing process.
-Each prompt is a template that can be formatted with specific data.
-"""
+User-message prompt templates for the book writing app.
 
-# World building prompt
-WORLD_THEME_PROMPT = """
-Based on the general topic: {topic}
+Each prompt below is a per-request template that gets interpolated with runtime
+data and sent as the "user" turn, alongside an agent's system prompt. They are
+plain ``str.format`` templates using named placeholders.
 
-Create a rich and detailed world setting for a book. Include:
-1. Time period and setting
-2. Major locations and their descriptions
-3. Prominent cultural/historical elements
-4. Technology level or magical elements (if applicable)
-5. Social/political structures
-6. Environment and atmosphere
-
-Be specific and detailed, creating a cohesive world that would support an engaging narrative.
-"""
-
-# World suggestions prompt
-WORLD_SUGGESTIONS_PROMPT = """
-Based on the general topic: {topic}
-
-Create a brief overview of potential world elements for a book. Include:
-1. 2-3 potential time periods or settings that would work well
-2. 3-5 key elements that would make this world interesting and unique
-3. Brief suggestions for the atmosphere and tone
-4. Any potential conflicts or tensions that could exist in this world
-
-This is a preliminary summary to help guide the creation of a more detailed world setting.
-Keep it concise but inspiring, focusing on elements that would spark the imagination.
-"""
-
-# Character creation prompt
-CHARACTER_CREATION_PROMPT = """
-Based on the world setting:
-{world_theme}
-
-Create {num_characters} distinct characters for a book set in this world. For each character include:
-1. Name and role in the story
-2. Age and physical description
-3. Personality traits and quirks
-4. Background/history
-5. Motivations and goals
-6. Conflicts or challenges they face
-7. Relationships with other characters (if applicable)
-
-Make each character complex and three-dimensional, with strengths, flaws, and distinguishing characteristics.
-"""
-
-# Outline generation prompt
-OUTLINE_GENERATION_PROMPT = """
-Based on the synopsis:
-{synopsis}
-
-The world:
-{world_theme}
-
-And the characters:
-{characters}
-
-Create a detailed {num_chapters}-chapter outline for a book.
-
-For each chapter include:
-1. Chapter title
-2. Key events and plot developments
-3. Character appearances and development
-4. Setting/location
-5. Major themes or emotional beats
-6. Any important revelations or plot twists
-
-Ensure the outline follows a satisfying story structure with a clear beginning, middle, and end.
-The plot should build logically with rising action, climax, and resolution.
-"""
-
-# Synopsis generation prompt
-SYNOPSIS_GENERATION_PROMPT = """
-Given the following genre, premise and story information, give me a highly detailed synopsis for a story in the traditional three act structure. Each act should be clearly labeled and should build toward the ending I've described. Make sure to include plenty of conflict, and include a main character.
-
-GENRE: {genre}
-PREMISE: {premise}
-ENDING: {ending}
-OTHER INFORMATION: {other_information}
-"""
-
-# Synopsis suggestions prompt
-SYNOPSIS_SUGGESTIONS_PROMPT = """
-Based on the general topic: {topic}
-
-Create a brief overview of potential story elements for a book. Include:
-1. 2-3 potential premises or story hooks
-2. 3-5 key plot points that would make the story interesting
-3. Brief suggestions for the tone and genre
-4. Any potential conflicts or tensions that could exist in the story
-
-This is a preliminary summary to help guide the creation of a more detailed synopsis.
-Keep it concise but inspiring, focusing on elements that would spark the imagination.
+The system prompts that frame these requests live in ``agents.py``, in the
+``self.system_prompts`` dict built by ``BookAgents.create_agents()``.
 """
 
 # Scene generation prompt
@@ -206,22 +117,6 @@ Provide a comprehensive edit that:
 8. Ensures the chapter covers its story beats naturally and completely without padding or filler
 
 Return the complete edited chapter.
-"""
-
-
-# Action beats generation prompt
-ACTIONBEATS_GENERATION_PROMPT = """
-For Chapter {chapter_number}: {chapter_title}
-
-Take the following chapter summary, and generate a list of {num_beats} highly detailed action beats for a script, with additional story information to fully flesh out the chapter. Make sure to always use proper nouns instead of pronouns.
-
-Based on the chapter summary:
-{chapter_summary}
-
-And considering:
-- World: {world_theme}
-- Characters: {relevant_characters}
-- Previous chapters: {previous_context}
 """
 
 # Inline continue prompt

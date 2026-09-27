@@ -28,7 +28,7 @@ The application consists of:
   - Character development
   - Scene creation
   - Writing and editing
-- **Prompt Management**: Centralized prompt templates in `prompts.py`
+- **Prompt Management**: Per-request user templates in `prompts.py`, agent system prompts in `agents.py`
 - **File Storage**: Local storage of all generated content in the `book_output` directory
 
 ## Installation
@@ -117,7 +117,7 @@ book_output/
 
 ## Configuration
 
-The system is configured through `config.py` for AI model settings and `prompts.py` for generation prompts. Secrets like `API_KEY` and `BASE_URL` are not stored in `config.py` but are loaded from a `.env` file in the project root.
+The system is configured through `config.py` for AI model settings, while the prompts live in two places: `agents.py` for agent system prompts and `prompts.py` for the per-request user templates. Secrets like `API_KEY` and `BASE_URL` are not stored in `config.py` but are loaded from a `.env` file in the project root.
 
 ## Contributing
 

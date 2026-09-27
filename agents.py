@@ -87,6 +87,37 @@ class BookAgents:
             context += f"\n\nThe Story Synopsis is:\n\n{synopsis.strip()}"
         messages.append({"role": "system", "content": context})
 
+    def _add_world_characters_and_synopsis_context(
+        self,
+        messages: List[Dict],
+        world_theme: str,
+        characters: str,
+        synopsis: str,
+    ) -> None:
+        """Add the world setting, characters and finalized synopsis as context."""
+        context = (
+            f"The book takes place in the following world:\n\n{world_theme}"
+            f"\n\nThe characters include:\n\n{characters}"
+        )
+        if synopsis and synopsis.strip():
+            context += f"\n\nThe Story Synopsis is:\n\n{synopsis.strip()}"
+        messages.append({"role": "system", "content": context})
+
+    def _add_action_beats_context(
+        self,
+        messages: List[Dict],
+        chapter_summary: str,
+        world_theme: str,
+        characters: str,
+    ) -> None:
+        """Add the target chapter's summary, world and characters as context."""
+        messages.append(
+            {
+                "role": "system",
+                "content": f"Chapter Summary:\n\n{chapter_summary}\n\nWorld:\n\n{world_theme}\n\nCharacters:\n\n{characters}",
+            }
+        )
+
     def _save_debug_messages(
         self, messages: List[Dict], agent_name: str, request_type: str
     ):
@@ -142,32 +173,8 @@ class BookAgents:
 
         # Define system prompts for each agent type
         self.system_prompts = {
-            "memory_keeper": f"""You are the keeper of the story's continuity and context.
-Your responsibilities:
-1. Track and summarize each chapter's key events
-2. Monitor character development and relationships
-3. Maintain world-building consistency
-4. Flag any continuity issues
-
-### Outline Context
-{outline_context}
-
-Format your responses as follows:
-- Start updates with 'MEMORY UPDATE:'
-- List key events with 'EVENT:'
-- List character developments with 'CHARACTER:'
-- List world details with 'WORLD:'
-- Flag issues with 'CONTINUITY ALERT:'
-""",
-            "character_generator": """You are an expert character creator who designs rich, memorable characters.
-
-Your responsibility is creating detailed character profiles for a story.
-When given a world setting and number of characters:
-1. Create unique, interesting characters that fit within the world
-2. Give each character distinct traits, motivations, and backgrounds
-3. Ensure characters have depth and potential for development
-4. Include both protagonists and antagonists as appropriate
-5. Treat the target number of characters as a guideline, not a hard limit — create as many as the story needs
+            "character_generator": """You are a creative assistant helping an author develop the cast for their book. When given a world setting, create detailed profiles for characters that fit in it. 
+            Treat the target number of characters as a guideline, not a hard limit.
 
 Format your output EXACTLY as:
 CHARACTER_PROFILES:
@@ -175,61 +182,73 @@ CHARACTER_PROFILES:
 [CHARACTER NAME 1]:
 - Role: [Main character, supporting character, antagonist, etc.]
 - Age/Species: [Character's age and species]
-- Physical Description: [Detailed appearance]
-- Personality: [Core personality traits]
-- Background: [Character history and origins]
-- Motivations: [What drives the character]
-- Skills/Abilities: [Special talents or powers]
-- Relationships: [Connections to other characters or groups]
-- Arc: [How this character might develop over the story]
+- Appearance: [A few interesting identifying traits plus the character's overall vibe]
+- Personality: [A few core personality traits. Which personality traits does the character show to others and which ones do they hide?]
+- Goal/motivation: [What does this character want the most?]
+- Background: [A couple of events that shaped who the character is today and influenced their goals]
+- Flaw: [What core flaw hinders the character getting what they want?]
+- Skills: [A couple of things this character is good at or will learn during the story to help achieve their goals]
+- Relationships: [Who does the character care about the most and what is their role in the character's pursuit of the goals? Who gets in the way of the character's goals?]
+- Arc: [How this character might develop over the story. What happens if the character fails to overcome their flaw and doesn't reach their goal?]
+- Misc: [Anything else that should be known about this character]
 
 [CHARACTER NAME 2]:
 [Follow same format as above]
 
 [And so on for all requested characters]
 
-Always provide specific, detailed content - never use placeholders.
 Ensure characters fit logically within the established world setting.
 """,
-            "story_planner": """You are an expert story planner. Your task is to create a concise, complete story synopsis based on a conversation with an author.
+            # Add a system prompt for conversational character brainstorming
+            "character_generator_chat": """You are a collaborative, creative assistant helping an author develop the cast for their book.
 
-From the provided conversation, you must extract the following information:
-- **Genre**: The genre of the story.
-- **Premise**: The core idea or setup of the story.
-- **Ending**: The intended conclusion of the story.
-- **Other Information**: Any other relevant details provided by the author.
+Your primary goal is to help the author shape distinct, memorable characters that fit the established world:
+1.  **Role**: What part does each character play in the story (protagonist, antagonist, ally, foil)?
+2.  **Core traits and flaws**: What makes them interesting, and what holds them back?
+3.  **Motivations and goals**: What are they driving at, and why does it matter to them?
+4.  **Backstory**: What shaped them into who they are?
+5.  **Relationships**: How do they connect to, clash with, or mirror the other characters?
 
-Then, using this information, generate a synopsis of the story in a traditional three-act structure. Each act must be clearly labeled.
+Your approach:
+*   Build the cast incrementally, focusing on one character at a time rather than listing everyone at once.
+*   Start by asking the author who the central character is and what they want.
+*   Proactively probe for the weaknesses and contradictions that make a character feel real.
+*   Offer concrete suggestions grounded in the established world, and ask clarifying questions to sharpen them.
+*   Pay attention to which characters the author keeps returning to, and which ones they seem to drop.
+*   Maintain a friendly, conversational tone.
+*   NEVER generate the final formatted profiles during this chat phase. This is for brainstorming only.
+
+After developing a character, **ALWAYS continue the conversation by asking further questions** to deepen that character or to move on to the next one. Do not stop at just describing a character.
+
+When they're ready to finalize, you'll help organize their ideas into a complete set of character profiles.
+""",
+            "story_planner": """You are a collaborative, creative writing assistant. Your task is to create a concise, complete story synopsis based on a conversation with an author.
 
 The synopsis should be concise and complete:
 - Aim for 500 to 1000 words.
-- Present the story at the level of its essential narrative arc: the driving conflicts, the key turning points that move the story forward, and how the premise builds toward the ending.
+- Present the story at the level of its essential narrative arc: the premise, the inciting incident, the driving conflicts, the key turning points that move the story forward, and the ending.
 - Prioritize the events that matter most to the whole story, and give each of them enough focus to be clear.
-- Write economically so every sentence adds meaningful new information about the plot, the conflicts, or the main character's journey.
 
 The final output should be only the complete synopsis.
 """,
-            "action_beats_generator": """You are an expert in creating detailed action beats for a script.
-
-Your responsibility is to take a chapter summary and generate a list of highly detailed action beats.
-When given a chapter summary:
-1. Generate a list of action beats that flesh out the chapter
-2. Always use proper nouns instead of pronouns
-3. Ensure the action beats are highly detailed and suitable for a script
+            "action_beats_generator": """You are a collaborative, creative assistant helping an author write detailed story beats base on a chapter summary to flesh out the chapter. 
+            
+            You can include details such as: what actions the characters take, the characters' feelings and reactions, who gets dialogue, what sensory details the characters notice, new information, new obstacles, things the characters remember, characters interacting with the surroundings, changes in the surroundings, etc. 
+            
+            Don't try to fit every type of detail in the chapter if it isn't relevant - only add details that fit naturally.
 
 Format your output EXACTLY as:
 ACTION_BEATS:
-- Beat 1: [Detailed description of the action]
-- Beat 2: [Detailed description of the action]
-- Beat 3: [Detailed description of the action]
+- Beat 1: [Detailed description]
+- Beat 2: [Detailed description]
+- Beat 3: [Detailed description]
 
-Always provide specific, detailed content - never use placeholders.
 """,
-            "outline_creator": f"""Generate a detailed outline targeting approximately {num_chapters} chapters.
+            "outline_creator": f"""Generate a detailed outline for a novel, targeting approximately {num_chapters} chapters.
 
 Start with "OUTLINE:" and end with "END OF OUTLINE"
 
-YOU MUST USE EXACTLY THIS FORMAT FOR EACH CHAPTER - NO DEVIATIONS:
+YOU MUST USE EXACTLY THIS FORMAT FOR EACH CHAPTER:
 
 Optional: ### [Act 1]: [Act Title] ([Act Title in local language if applicable])
 
@@ -253,74 +272,13 @@ Chapter 2: [Title] ([Title in local language if applicable])
 
 [CONTINUE THE SEQUENCE, TARGETING AROUND {num_chapters} CHAPTERS TOTAL]
 
-CRITICAL REQUIREMENTS:
-1. Aim for roughly {num_chapters} chapters (a guideline, not a strict limit), numbered sequentially from 1 without gaps or duplicates
-2. NEVER repeat chapter numbers or restart the numbering
-3. EVERY chapter must have AT LEAST 3 specific Key Events
-4. Maintain a coherent story flow from the first chapter to the last
-5. Use proper indentation with bullet points for Key Events
-6. NO EXCEPTIONS to this format - follow it precisely for all chapters
-
 Initial Premise:
 {initial_prompt}
 """,
-            "world_builder": f"""You are an expert in world-building who creates rich, consistent settings.
-            
-Your role is to establish ALL settings and locations needed for the entire story based on a provided story arc.
+            "writer": f"""You are a creative writing assistant. Your task is to write a chapter for a novel based on the provided outline context. Ensure all story beats are completed, and don't introduce new plot points beyond the outline.
 
 ### Outline Context
 {outline_context}
-
-Your responsibilities:
-1. Review the story arc to identify every location and setting needed
-2. Create detailed descriptions for each setting, including:
-- Physical layout and appearance
-- Atmosphere and environmental details
-- Important objects or features
-- Sensory details (sights, sounds, smells)
-3. Identify recurring locations that appear multiple times
-4. Note how settings might change over time
-5. Create a cohesive world that supports the story's themes
-
-Format your response as:
-WORLD_ELEMENTS:
-
-[LOCATION NAME]:
-- Physical Description: [detailed description]
-- Atmosphere: [mood, time of day, lighting, etc.]
-- Key Features: [important objects, layout elements]
-- Sensory Details: [what characters would experience]
-
-[RECURRING ELEMENTS]:
-- List any settings that appear multiple times
-- Note any changes to settings over time
-
-[TRANSITIONS]:
-- How settings connect to each other
-- How characters move between locations
-""",
-            "writer": f"""You are an expert creative writer, a master storyteller who brings scenes to life with breathtaking detail and deep emotional resonance.
-
-Your mission is to write scenes based on the provided outline context and the user's request, 
-adhering to the following directives and craft rules at all times.
-
-### Outline Context
-{outline_context}
-
----
-### Core Directives (Non-Negotiable Rules)
-1.  **Strict Plot Adherence:** You must follow the provided **Chapter Outline / Action Beats** with absolute precision and in the correct order. Do not add new plot points, deviate from the sequence, or skip any beats. Your task is to bring the provided outline to life.
-2.  **Let the Story Set the Length:** Cover the chapter's story beats naturally, completely, and in order. There is no minimum word count. If the chapter concludes naturally, end it there rather than padding with filler or expanding scenes solely to reach a length target.
-3.  **Scene Integrity:** Write a single, complete chapter with a clear beginning, middle, and end as defined by the story beats. Conclude the chapter exactly where the final story beat specifies. Ensure all transitions are smooth and logical.
-
----
-### Craft & Style Rules (Your Authorial Voice)
-*   **Show, Don't Tell:** This is your primary storytelling technique. Reveal character, plot, and world-building through character actions, subtext, body language, and sensory information, not exposition.
-*   **Prose and Cadence:** Create engaging, dynamic prose. Employ a varied sentence structure, mixing short, punchy sentences for tension with longer, descriptive sentences for atmosphere.
-*   **Details Matter:** Use rich, vivid details to immerse the reader. Add a lot of details, and describe the environment and characters where it makes sense.
-*   **Authentic, Purposeful Dialogue:** Dialogue must sound like real people talking. Every line must either reveal character, advance the plot, or build tension. Each character's voice must be distinct and consistent with their profile.
-*   **Grounded Tone:** Avoid clichés, melodrama, and overly sentimental prose. Keep the emotional expression authentic and grounded.
-*   **Forbidden Words:** You are forbidden from using the following words: **peril, fraught, thwart, dire, that, feel/feeling/felt, back, just, then, ail, look, maybe, knew/know**. Use stronger verbs and more descriptive phrasing instead.
 
 ---
 
@@ -329,21 +287,20 @@ Mark drafts with 'SCENE:' and final versions with 'SCENE FINAL:'
 """,
             "editor": f"""You are an expert editor ensuring quality and consistency.
 
-Your mission is to review and improve the provided chapter content based on the provided outline context and the user's request, 
+Your task is to review and improve the provided chapter content based on the provided outline context and the user's request, 
 adhering to the following directives at all times.
 
 ### Outline Context
 {outline_context}
 
 ---
-### Core Directives (Non-Negotiable Rules)
+### Core Directives
 1. Check alignment with outline
 2. Verify character consistency
 3. Maintain world-building rules
 4. Improve prose quality
 5. Return complete edited chapter
 6. Never ask to start the next chapter, as the next step is finalizing this chapter
-7. Do not pad or stretch the chapter to hit a word count; ensure it covers its story beats naturally and completely.
 
 Format your responses:
 1. Start critiques with 'FEEDBACK:'
@@ -355,7 +312,7 @@ Format your responses:
 Always reference specific outline elements in your feedback.
 """,
             # Add a special system prompt for conversational world building
-            "world_builder_chat": """You are a collaborative, creative world-building assistant helping an author develop a rich, detailed world for their book.
+            "world_builder_chat": """You are a collaborative, creative world-building assistant helping an author develop a detailed world for their book.
 
 Your approach:
 1. Ask thoughtful questions about their world ideas
@@ -369,27 +326,36 @@ Your approach:
     - Economy and resources
 4. Maintain a friendly, conversational tone
 5. Keep track of their preferences and established world elements
-6. Gently guide them toward creating a coherent, interesting world
 
 When they're ready to finalize, you'll help organize their ideas into a comprehensive world setting document.
 """,
+            # Add a system prompt for the final world-setting document pass
+            "world_builder_specialist": """You are a creative writing assistant helping an author write a worldbuilding document for their novel. Your task is to extract relevant worldbuilding information from the conversation with the author and organize it into a well-structured document.
+
+Organize your response as a document covering:
+1. Time period and setting: [detailed description]
+2. Major locations: [detailed description of each key location]
+3. Cultural/historical elements: [key cultural and historical aspects]
+4. Technology/magical elements: [if applicable]
+5. Social/political structures: [governments, factions, etc. if applicable]
+6. Environment and atmosphere: [natural world aspects]
+
+Add necessary details to fill any gaps, while staying true to everything established in the chat history.
+""",
             # Add a special system prompt for conversational action beats building
-            "action_beats_chat": """You are a collaborative, creative assistant helping an author brainstorm and refine action beats for a chapter.
+            "action_beats_chat": """You are a collaborative, creative assistant helping an author brainstorm and refine story beats for a chapter.
 
 Your approach during this brainstorming phase:
-1. Focus on DISCUSSING action beat ideas, not generating the complete list yet.
-2. Help explore different action sequences, character movements, and plot advancements.
-3. Ask thoughtful questions about their vision for the action beats.
+1. Focus on DISCUSSING story beat ideas, not generating the complete list yet.
+2. Help explore different action sequences and plot advancements.
+3. Ask thoughtful questions about their vision for the story beats.
 4. Offer suggestions that build on their ideas, including:
-    - Potential dynamic actions or conflicts.
+    - Potential conflicts.
     - Ways to integrate character development into action.
-    - Pacing and tension within action sequences.
-    - Visual and sensory details for the action.
+    - Sensory details and emotions.
 5. Maintain a friendly, conversational tone.
-6. Help them think through different action beat options.
-7. NEVER generate a full list of action beats during this chat phase.
+6. NEVER generate a full list of story beats during this chat phase.
 
-IMPORTANT: This is a brainstorming conversation. DO NOT generate the formal action beats until the author is ready to finalize.
 """,
             # Add a special system prompt for conversational outline brainstorming
             "outline_creator_chat": f"""You are a collaborative, creative story development assistant helping an author brainstorm and develop their book outline.
@@ -405,13 +371,9 @@ Your approach during this brainstorming phase:
     - Pacing considerations
     - Structure recommendations
 5. Maintain a friendly, conversational tone
-6. Help them think through different story options
-7. NEVER generate a full chapter-by-chapter outline during this chat phase
-8. DO NOT use chapter numbers or list out chapters - this is for brainstorming only
+6. DO NOT use chapter numbers or list out chapters - this is for brainstorming only
 
-IMPORTANT: This is a brainstorming conversation. DO NOT generate the formal outline until the author is ready to finalize.
-
-The book will likely have around {num_chapters} chapters (a target, not a strict requirement), but during this chat focus on story elements, not chapter structure.
+The book will likely have around {num_chapters} chapters, but during this chat focus on story elements, not chapter structure.
 """,
             # Add a special system prompt for conversational synopsis brainstorming
             "story_synopsis_chat": """You are a collaborative, creative story development assistant helping an author brainstorm and develop their book synopsis.
@@ -434,24 +396,9 @@ After identifying an element, **ALWAYS continue the conversation by asking furth
 
 When they're ready to finalize, you'll help organize their ideas into a overview with genre, premise and ending.
 """,
-            # Add a special system prompt for inline writing
-            "inline_writer": """You are an expert creative writer — a master storyteller who brings scenes to life with immersive detail, emotional subtlety, and narrative precision.
-
-Your task is to write or revise narrative text in a way that follows these core storytelling principles:
-
----
-### Craft & Style Rules (Your Authorial Voice)
-
-* **Show, Don’t Tell:** Prioritize subtext, action, and sensory cues over exposition. Reveal characters and world through what they do, say, and notice — not what is explained.
-* **Prose and Cadence:** Use varied sentence structure. Short, sharp sentences build tension; longer, descriptive ones evoke atmosphere and introspection.
-* **Details Matter:** Describe environments, physical gestures, and internal states with vivid, purposeful detail that serves character or tone.
-* **Authentic, Purposeful Dialogue:** Dialogue must sound natural and distinct to each character. Every line should reveal character, escalate tension, or move the plot forward.
-* **Grounded Emotion:** Avoid melodrama or sentimentality. Emotional moments should be honest, restrained, and earned through context.
-* **Banned Words:** Avoid the following: **peril, fraught, thwart, dire, that, feel/feeling/felt, back, just, then, ail, look, maybe, knew/know**. Replace them with stronger, more specific language.
-""",
             # Add specific inline writer prompts
-            "inline_reviser": "You are a creative writer who revises narrative text to improve clarity, tone, and flow while preserving intent.",
-            "inline_continuer": "You are a creative writer who continues narrative text in the same tone and voice without repeating content.",
+            "inline_reviser": "You are a creative writing assistant. Your task is to revise narrative text to improve clarity, tone, and flow while preserving intent.",
+            "inline_continuer": "You are a creative writing assistant. Your task is to extend the provided narrative text in the same tone and voice without repeating content.",
         }
 
         # Save the raw system prompts to a file for debugging
@@ -501,57 +448,6 @@ Your task is to write or revise narrative text in a way that follows these core 
             )
             with open(response_filepath, "w", encoding="utf-8") as f:
                 f.write(response)
-
-        # Disable the clean-up logic for now
-        # # Clean up the response based on agent type
-        # if agent_name == "outline_creator":
-        #     # Extract just the outline part
-        #     start = response.find("OUTLINE:")
-        #     end = response.find("END OF OUTLINE")
-        #     if start != -1 and end != -1:
-        #         cleaned_response = response[start : end + len("END OF OUTLINE")]
-        #         return cleaned_response
-        # elif agent_name == "writer":
-        #     # Handle writer's scene format
-        #     if "SCENE FINAL:" in response:
-        #         parts = response.split("SCENE FINAL:")
-        #         if len(parts) > 1:
-        #             return parts[1].strip()
-        # elif agent_name == "world_builder":
-        #     # Extract the world elements part
-        #     start = response.find("WORLD_ELEMENTS:")
-        #     if start != -1:
-        #         return response[start:].strip()
-        #     else:
-        #         # Try to find any content that looks like world-building
-        #         for marker in [
-        #             "Time Period",
-        #             "Setting:",
-        #             "Locations:",
-        #             "Major Locations",
-        #         ]:
-        #             if marker in response:
-        #                 return response
-        # elif agent_name == "story_planner":
-        #     # Extract the story arc part
-        #     start = response.find("STORY_ARC:")
-        #     if start != -1:
-        #         return response[start:].strip()
-        # elif agent_name == "character_generator":
-        #     # Extract the character profiles part
-        #     start = response.find("CHARACTER_PROFILES:")
-        #     if start != -1:
-        #         return response[start:].strip()
-        #     else:
-        #         # Try to find any content that looks like character profiles
-        #         for marker in [
-        #             "Character 1:",
-        #             "Main Character:",
-        #             "Protagonist:",
-        #             "CHARACTER_PROFILES",
-        #         ]:
-        #             if marker in response:
-        #                 return response
 
         return response
 
@@ -729,83 +625,26 @@ Your task is to write or revise narrative text in a way that follows these core 
             stream, "story_planner", "final_synopsis_stream_response"
         )
 
-    def generate_final_world(self, chat_history, topic, synopsis) -> str:
-        """Generate final world setting based on chat history"""
-        # Format the messages for the API call
+    def _build_final_world_messages(self, chat_history, topic, synopsis) -> List[Dict]:
+        """Build the message array for the final world-setting pass.
+
+        Shared by the streaming and non-streaming finalize paths so both emit an
+        identical document from identical input.
+        """
         messages = [
             {
                 "role": "system",
-                "content": """You are an expert world-building specialist.
-    Based on the entire conversation with the user, create a comprehensive, well-structured world setting document.
-    
-    Format your response as:
-    WORLD_ELEMENTS:
-    
-    1. Time period and setting: [detailed description]
-    2. Major locations: [detailed description of each key location]
-    3. Cultural/historical elements: [key cultural and historical aspects]
-    4. Technology/magical elements: [if applicable]
-    5. Social/political structures: [governments, factions, etc.]
-    6. Environment and atmosphere: [natural world aspects]
-    
-    Make this a complete, cohesive reference document that covers all important aspects of the world
-    mentioned in the conversation. Add necessary details to fill any gaps, while staying true to
-    everything established in the chat history.
-""",
+                "content": self.system_prompts["world_builder_specialist"],
             }
         ]
 
         # Add the story synopsis context
         self._add_synopsis_context(messages, synopsis)
 
-        # Add conversation history
+        # Add conversation context from chat history
         for entry in chat_history:
             role = "user" if entry["role"] == "user" else "assistant"
             messages.append({"role": role, "content": entry["content"]})
-
-        # Add a final instruction to generate the world setting
-        messages.append(
-            {
-                "role": "user",
-                "content": f"Please create the final, comprehensive world setting document for my book about '{topic}' based on our conversation.",
-            }
-        )
-
-        # Save the messages for debugging
-        self._save_debug_messages(
-            messages, "world_builder_specialist", "final_world_request"
-        )
-
-        # Call the API
-        completion = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            **self._sampling_kwargs(),
-        )
-
-        # Extract the response
-        response = completion.choices[0].message.content
-
-        # Ensure it has the WORLD_ELEMENTS header for consistency
-        if "WORLD_ELEMENTS:" not in response:
-            response = "WORLD_ELEMENTS:\n\n" + response
-
-        return response
-
-    def generate_final_world_stream(self, chat_history, topic, synopsis):
-        """Generate the final world setting based on the chat history using streaming."""
-        # Format messages for the API call
-        messages = [{"role": "system", "content": self.system_prompts["world_builder"]}]
-
-        # Add the story synopsis context
-        self._add_synopsis_context(messages, synopsis)
-
-        # Add conversation context from chat history
-        for message in chat_history:
-            if message["role"] == "user":
-                messages.append({"role": "user", "content": message["content"]})
-            else:
-                messages.append({"role": "assistant", "content": message["content"]})
 
         # Add the final instruction to create the complete world setting
         messages.append(
@@ -815,9 +654,35 @@ Your task is to write or revise narrative text in a way that follows these core 
             }
         )
 
+        return messages
+
+    def generate_final_world(self, chat_history, topic, synopsis) -> str:
+        """Generate final world setting based on chat history.
+
+        Blocking counterpart to generate_final_world_stream: consumes the same
+        stream and returns the full document as a string.
+        """
+        stream = self.generate_final_world_stream(chat_history, topic, synopsis)
+
+        content = []
+        for chunk in stream:
+            if (
+                chunk.choices
+                and len(chunk.choices) > 0
+                and chunk.choices[0].delta
+                and chunk.choices[0].delta.content is not None
+            ):
+                content.append(chunk.choices[0].delta.content)
+
+        return "".join(content)
+
+    def generate_final_world_stream(self, chat_history, topic, synopsis):
+        """Generate the final world setting based on the chat history using streaming."""
+        messages = self._build_final_world_messages(chat_history, topic, synopsis)
+
         # Save the messages for debugging
         self._save_debug_messages(
-            messages, "world_builder", "final_world_stream_request"
+            messages, "world_builder_specialist", "final_world_stream_request"
         )
 
         # Make the API call with streaming enabled
@@ -833,7 +698,7 @@ Your task is to write or revise narrative text in a way that follows these core 
 
         # If debugging is enabled, wrap the stream to save the full response at the end
         return self._create_debug_stream_wrapper(
-            stream, "world_builder", "final_world_stream_response"
+            stream, "world_builder_specialist", "final_world_stream_response"
         )
 
     def update_world_element(self, element_name: str, description: str) -> None:
@@ -848,37 +713,16 @@ Your task is to write or revise narrative text in a way that follows these core 
             self.character_developments[character_name] = []
         self.character_developments[character_name].append(development)
 
-    def get_world_context(self) -> str:
-        """Get a formatted string of all world elements"""
-        if not self.world_elements:
-            return ""
-
-        elements = ["WORLD ELEMENTS:"]
-        for name, desc in self.world_elements.items():
-            elements.append(f"\n{name}:\n{desc}")
-
-        return "\n".join(elements)
-
-    def get_character_context(self) -> str:
-        """Get a formatted string of all character developments"""
-        if not self.character_developments:
-            return ""
-
-        developments = ["CHARACTER DEVELOPMENTS:"]
-        for name, devs in self.character_developments.items():
-            developments.append(f"\n{name}:")
-            for i, dev in enumerate(devs, 1):
-                developments.append(f"{i}. {dev}")
-
-        return "\n".join(developments)
-
     def generate_chat_response_characters(
         self, chat_history, world_theme, synopsis, user_message, num_characters=3
     ):
         """Generate a chat response about character creation."""
         # Format messages for the API call
         messages = [
-            {"role": "system", "content": self.system_prompts["character_generator"]}
+            {
+                "role": "system",
+                "content": self.system_prompts["character_generator_chat"],
+            }
         ]
 
         # Add world theme and synopsis context
@@ -904,7 +748,7 @@ Your task is to write or revise narrative text in a way that follows these core 
 
         # Save the messages for debugging
         self._save_debug_messages(
-            messages, "character_generator", "chat_characters_request"
+            messages, "character_generator_chat", "chat_characters_request"
         )
 
         # Make the API call
@@ -926,7 +770,10 @@ Your task is to write or revise narrative text in a way that follows these core 
         """Generate a streaming chat response about character creation."""
         # Format messages for the API call
         messages = [
-            {"role": "system", "content": self.system_prompts["character_generator"]}
+            {
+                "role": "system",
+                "content": self.system_prompts["character_generator_chat"],
+            }
         ]
 
         # Add world theme and synopsis context
@@ -952,7 +799,7 @@ Your task is to write or revise narrative text in a way that follows these core 
 
         # Save the messages for debugging
         self._save_debug_messages(
-            messages, "character_generator", "chat_characters_stream_request"
+            messages, "character_generator_chat", "chat_characters_stream_request"
         )
 
         # Make the API call with streaming enabled
@@ -968,7 +815,7 @@ Your task is to write or revise narrative text in a way that follows these core 
 
         # If debugging is enabled, wrap the stream to save the full response at the end
         return self._create_debug_stream_wrapper(
-            stream, "character_generator", "chat_characters_stream_response"
+            stream, "character_generator_chat", "chat_characters_stream_response"
         )
 
     def generate_final_characters_stream(
@@ -994,7 +841,7 @@ Your task is to write or revise narrative text in a way that follows these core 
         messages.append(
             {
                 "role": "user",
-                "content": f"Based on our conversation, please create around {num_characters} detailed character profiles for the book (this is a target, not a strict limit — use your judgment based on the story). Format each character with Name, Role, Physical Description, Background, Personality, and Goals/Motivations. This will be the final character list for the book.",
+                "content": f"Based on our conversation, please create around {num_characters} detailed character profiles for the book (this is a target, not a strict limit — use your judgment based on the story). Format each character with Name, Role, Age/Species, Physical Description, Personality, Background, Motivations, Skills/Abilities, Relationships, and Arc. This will be the final character list for the book.",
             }
         )
 
@@ -1028,12 +875,9 @@ Your task is to write or revise narrative text in a way that follows these core 
             {"role": "system", "content": self.system_prompts["outline_creator_chat"]}
         ]
 
-        # Add world theme and character context
-        messages.append(
-            {
-                "role": "system",
-                "content": f"The book takes place in the following world:\n\n{world_theme}\n\nThe characters include:\n\n{characters}\n\nThe Story Synopsis is:\n\n{synopsis}",
-            }
+        # Add world theme, characters and synopsis context
+        self._add_world_characters_and_synopsis_context(
+            messages, world_theme, characters, synopsis
         )
 
         # Add conversation context from chat history
@@ -1073,12 +917,9 @@ Your task is to write or revise narrative text in a way that follows these core 
             {"role": "system", "content": self.system_prompts["outline_creator_chat"]}
         ]
 
-        # Add world theme and character context
-        messages.append(
-            {
-                "role": "system",
-                "content": f"The book takes place in the following world:\n\n{world_theme}\n\nThe characters include:\n\n{characters}\n\nThe Story Synopsis is:\n\n{synopsis}",
-            }
+        # Add world theme, characters and synopsis context
+        self._add_world_characters_and_synopsis_context(
+            messages, world_theme, characters, synopsis
         )
 
         # Add conversation context from chat history
@@ -1121,12 +962,9 @@ Your task is to write or revise narrative text in a way that follows these core 
             {"role": "system", "content": self.system_prompts["outline_creator"]}
         ]
 
-        # Add world theme and character context
-        messages.append(
-            {
-                "role": "system",
-                "content": f"The book takes place in the following world:\n\n{world_theme}\n\nThe characters include:\n\n{characters}\n\nThe Story Synopsis is:\n\n{synopsis}",
-            }
+        # Add world theme, characters and synopsis context
+        self._add_world_characters_and_synopsis_context(
+            messages, world_theme, characters, synopsis
         )
 
         # Add conversation context from chat history
@@ -1184,12 +1022,9 @@ Format it as a properly structured outline with clear chapter sections and event
             {"role": "system", "content": self.system_prompts["action_beats_chat"]}
         ]
 
-        # Add context
-        messages.append(
-            {
-                "role": "system",
-                "content": f"Chapter Summary:\n\n{chapter_summary}\n\nWorld:\n\n{world_theme}\n\nCharacters:\n\n{characters}",
-            }
+        # Add chapter summary, world and character context
+        self._add_action_beats_context(
+            messages, chapter_summary, world_theme, characters
         )
 
         # Add conversation context from chat history
@@ -1231,12 +1066,9 @@ Format it as a properly structured outline with clear chapter sections and event
             {"role": "system", "content": self.system_prompts["action_beats_generator"]}
         ]
 
-        # Add context
-        messages.append(
-            {
-                "role": "system",
-                "content": f"Chapter Summary:\n\n{chapter_summary}\n\nWorld:\n\n{world_theme}\n\nCharacters:\n\n{characters}",
-            }
+        # Add chapter summary, world and character context
+        self._add_action_beats_context(
+            messages, chapter_summary, world_theme, characters
         )
 
         # Add conversation context from chat history
