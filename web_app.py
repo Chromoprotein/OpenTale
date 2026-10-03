@@ -2032,7 +2032,7 @@ def api_chapters():
     """API endpoint to get all chapters."""
     all_chapters = get_chapters()
 
-    return jsonify({all_chapters})
+    return jsonify(all_chapters)
 
 
 @app.route("/api/paginated_chapters", methods=["GET"])
