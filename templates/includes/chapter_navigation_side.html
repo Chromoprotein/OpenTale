@@ -14,6 +14,7 @@
                     <span>Chapter {{ ch.chapter_number }}: {{ ch.title }}</span>
                     <div class="d-flex flex-column" style="width: 90px;">
                         {% if ch.has_content %}<span class="badge bg-success mb-1 w-100 text-center" style="font-size: 0.60em !important; padding: 4px;">Content</span>{% endif %}
+                        {% if ch.has_scenes %}<span class="badge bg-secondary mb-1 w-100 text-center" style="font-size: 0.60em !important; padding: 4px;">Scenes</span>{% endif %}
                         {% if ch.has_action_beats %}<span class="badge bg-secondary mb-1 w-100 text-center" style="font-size: 0.60em !important; padding: 4px;">Action Beats</span>{% endif %}
                         {% if ch.has_been_reviewed %}<span class="badge bg-info w-100 text-center" style="font-size: 0.60em !important; padding: 4px;">Reviewed</span>{% endif %}
                     </div>

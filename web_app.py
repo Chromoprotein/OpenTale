@@ -122,6 +122,13 @@ def get_chapters():
             os.path.exists(action_beats_file_path)
             and os.path.getsize(action_beats_file_path) > 0
         )
+        scene_dir = os.path.join(
+            CHAPTERS_DIR, f"chapter_{chapter['chapter_number']}_scenes"
+        )
+        chapter["has_scenes"] = (
+            os.path.exists(scene_dir)
+            and any(f.endswith(TEXT_EXTENSION) for f in os.listdir(scene_dir))
+        )
     return chapters
 
 
@@ -190,6 +197,34 @@ def get_action_beats(chapter_number):
         with open(action_beats_path, "r") as f:
             return f.read().strip()
     return ""
+
+
+def get_scenes(chapter_number):
+    """Get all scenes for a specific chapter."""
+    scenes = []
+    scene_dir = os.path.join(CHAPTERS_DIR, f"chapter_{chapter_number}_scenes")
+    if os.path.exists(scene_dir):
+        scene_files = [f for f in os.listdir(scene_dir) if f.endswith(TEXT_EXTENSION)]
+        scene_files.sort(
+            key=lambda f: int(f.split("_")[1].split(".")[0])
+        )
+        for scene_file in scene_files:
+            scene_path = os.path.join(scene_dir, scene_file)
+            with open(scene_path, "r") as f:
+                content = f.read()
+            scenes.append(content)
+    return scenes
+
+
+def get_scenes_details(chapter_number):
+    """Get formatted scene details for inclusion in chapter prompts."""
+    scenes = get_scenes(chapter_number)
+    if not scenes:
+        return ""
+    parts = []
+    for i, scene_content in enumerate(scenes, 1):
+        parts.append(f"Scene {i}:\n{scene_content}")
+    return "\n\n".join(parts)
 
 
 def get_master_prompt():
@@ -881,7 +916,7 @@ def chapter(chapter_number):
                 chapter_outline=chapter_prompt,
                 world_theme=world_theme,
                 relevant_characters=characters,  # You might want to filter for relevant characters only
-                scene_details="",  # This would be filled if scenes were generated first
+                scene_details=get_scenes_details(chapter_number),
                 action_beats=action_beats,
                 previous_context=previous_context,
                 point_of_view=point_of_view,
@@ -1009,7 +1044,7 @@ def _handle_chapter_stream(chapter_number, agent_name):
         chapter_outline=chapter_prompt,
         world_theme=world_theme,
         relevant_characters=characters,  # You might want to filter for relevant characters only
-        scene_details="",  # This would be filled if scenes were generated first
+        scene_details=get_scenes_details(chapter_number),
         action_beats=action_beats,
         previous_context=previous_context,
         point_of_view=point_of_view,
