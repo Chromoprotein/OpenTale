@@ -35,7 +35,6 @@ MASTER_PROMPT_FILE = os.path.join(BOOK_OUTPUT_DIR, f"master_prompt{TEXT_EXTENSIO
 SETTINGS_FILE = os.path.join(BOOK_OUTPUT_DIR, "settings.json")
 OUTLINE_JSON_FILE = os.path.join(BOOK_OUTPUT_DIR, "outline.json")
 CHAPTERS_DIR = os.path.join(BOOK_OUTPUT_DIR, "chapters")
-PREVIOUS_CHAPTER_CONTEXT_LENGTH = 2000
 
 app = Flask(__name__)
 app.secret_key = "ai-book-writer-secret-key"  # For session management
@@ -227,20 +226,21 @@ def get_settings():
     return {}
 
 
-def get_previous_chapter_context(chapter_number):
-    """Get context from the previous chapter to ensure continuity."""
+def get_previous_chapter_outline(chapter_number, chapters):
+    """Get the previous chapter's title and outline as continuity context."""
+    if chapter_number <= 1:
+        return ""
 
-    previous_context = ""
-    if chapter_number > 1:
-        prev_chapter_path = os.path.join(
-            CHAPTERS_DIR, f"chapter_{chapter_number - 1}{TEXT_EXTENSION}"
-        )
-        if os.path.exists(prev_chapter_path):
-            with open(prev_chapter_path, "r", encoding="utf-8") as f:
-                content = f.read()
-                previous_context = content[-PREVIOUS_CHAPTER_CONTEXT_LENGTH:]
+    previous_chapter = next(
+        (ch for ch in chapters if ch["chapter_number"] == chapter_number - 1), None
+    )
+    if not previous_chapter:
+        return ""
 
-    return previous_context
+    return (
+        f"Chapter {previous_chapter['chapter_number']}: {previous_chapter['title']}\n"
+        f"{previous_chapter['prompt']}"
+    )
 
 
 def save_settings(settings):
@@ -872,11 +872,11 @@ def chapter(chapter_number):
         world_theme = get_world_theme()
         characters = get_characters()
 
-        # Get context from the previous chapter to ensure continuity
-        previous_context = get_previous_chapter_context(chapter_number)
+        # Get the previous chapter's outline as continuity context
+        previous_chapter_outline = get_previous_chapter_outline(chapter_number, chapters)
 
         # Initialize agents for chapter generation
-        book_agents = BookAgents(agent_config, chapters)
+        book_agents = BookAgents(agent_config, get_synopsis())
         book_agents.create_agents(world_theme, len(chapters))
 
         # Combine base prompt with chat context
@@ -897,7 +897,7 @@ def chapter(chapter_number):
                 world_theme=world_theme,
                 relevant_characters=characters,  # You might want to filter for relevant characters only
                 scene_details=get_scenes_details(chapter_number),
-                previous_context=previous_context,
+                previous_chapter_outline=previous_chapter_outline,
                 point_of_view=point_of_view,
                 tense=tense,
             ),
@@ -991,11 +991,11 @@ def _handle_chapter_stream(chapter_number, agent_name):
     world_theme = get_world_theme()
     characters = get_characters()
 
-    # Get context from the previous chapter to ensure continuity
-    previous_context = get_previous_chapter_context(chapter_number)
+    # Get the previous chapter's outline as continuity context
+    previous_chapter_outline = get_previous_chapter_outline(chapter_number, chapters)
 
     # Initialize the book agents
-    book_agents = BookAgents(agent_config, chapters)
+    book_agents = BookAgents(agent_config, get_synopsis())
     book_agents.create_agents(world_theme, len(chapters))
 
     # Combine the base chapter prompt with any additional context from the chat
@@ -1021,7 +1021,7 @@ def _handle_chapter_stream(chapter_number, agent_name):
         world_theme=world_theme,
         relevant_characters=characters,  # You might want to filter for relevant characters only
         scene_details=get_scenes_details(chapter_number),
-        previous_context=previous_context,
+        previous_chapter_outline=previous_chapter_outline,
         point_of_view=point_of_view,
         tense=tense,
         chapter_content=chapter_content,  # Included for editor
@@ -1140,9 +1140,6 @@ def chapter_editor(chapter_number):
             chapter_content = f.read()
         has_review = True
 
-    # Get context from the previous chapter to ensure continuity
-    previous_context = get_previous_chapter_context(chapter_number)
-
     master_prompt = get_master_prompt()
     settings = get_settings()
 
@@ -1174,7 +1171,6 @@ def chapter_editor(chapter_number):
         original_chapter_content=original_chapter_content,
         chapter_content=chapter_content,
         has_review=has_review,
-        previous_context=previous_context,
         master_prompt=master_prompt,
         point_of_view=point_of_view,
         tense=tense,
@@ -1503,11 +1499,11 @@ def scene(chapter_number):
         world_theme = get_world_theme()
         characters = get_characters()
 
-        # Get context from the previous chapter to ensure continuity
-        previous_context = get_previous_chapter_context(chapter_number)
+        # Get the previous chapter's outline as continuity context
+        previous_chapter_outline = get_previous_chapter_outline(chapter_number, chapters)
 
         # Initialize agents
-        book_agents = BookAgents(agent_config, chapters)
+        book_agents = BookAgents(agent_config, get_synopsis())
         book_agents.create_agents(world_theme, len(chapters) if chapters else 1)
 
         # Generate the scene
@@ -1519,7 +1515,7 @@ def scene(chapter_number):
                 chapter_outline=chapter_data.get("prompt", ""),
                 world_theme=world_theme,
                 relevant_characters=characters,  # You might want to filter for relevant characters only
-                previous_context=previous_context,
+                previous_chapter_outline=previous_chapter_outline,
             ),
         )
 

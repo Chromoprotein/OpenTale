@@ -19,7 +19,7 @@ Based on the chapter outline:
 And considering:
 - World: {world_theme}
 - Characters: {relevant_characters}
-- Previous chapters: {previous_context}
+- Previous chapter outline: {previous_chapter_outline}
 
 Generate a detailed scene that includes:
 1. Setting description with sensory details
@@ -53,8 +53,8 @@ Based on the following:
 - **Scenes:**
 {scene_details}
 
-- **Previous chapters:**
-{previous_context}
+- **Previous chapter outline:**
+{previous_chapter_outline}
 
 - **Additional Prompt:**
 {master_prompt}
@@ -92,8 +92,8 @@ Based on the following:
 - **Scenes:**
 {scene_details}
 
-- **Previous chapters:**
-{previous_context}
+- **Previous chapter outline:**
+{previous_chapter_outline}
 
 - **Additional Prompt:**
 {master_prompt}

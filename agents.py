@@ -1,7 +1,7 @@
 """Define the API client for book generation system"""
 
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from openai import OpenAI
 
@@ -26,10 +26,10 @@ def check_openai_connection(agent_config: Dict):
 
 
 class BookAgents:
-    def __init__(self, agent_config: Dict, outline: Optional[List[Dict]] = None):
-        """Initialize with book outline context"""
+    def __init__(self, agent_config: Dict, synopsis: str = ""):
+        """Initialize with the book's story synopsis as context"""
         self.agent_config = agent_config
-        self.outline = outline
+        self.synopsis = (synopsis or "").strip()
         self.world_elements = {}  # Track described locations/elements
         self.character_developments = {}  # Track character arcs
         self.debug = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
@@ -52,21 +52,6 @@ class BookAgents:
             "temperature": self.agent_config.get("temperature", 1),
             token_param: self.agent_config.get("max_tokens", 10000),
         }
-
-    def _format_outline_context(self) -> str:
-        """Format the book outline into a readable context"""
-        if not self.outline:
-            return ""
-
-        context_parts = ["Complete Book Outline:"]
-        for chapter in self.outline:
-            context_parts.extend(
-                [
-                    f"\nChapter {chapter['chapter_number']}: {chapter['title']}",
-                    chapter["prompt"],
-                ]
-            )
-        return "\n".join(context_parts)
 
     def _add_synopsis_context(self, messages: List[Dict], synopsis: str) -> None:
         """Add the finalized synopsis as context to the messages, if present."""
@@ -154,7 +139,7 @@ class BookAgents:
 
     def create_agents(self, initial_prompt, num_chapters) -> Dict:
         """Set up system prompts for each agent type"""
-        outline_context = self._format_outline_context()
+        synopsis_context = self.synopsis or "(No story synopsis is available.)"
 
         # Define system prompts for each agent type
         self.system_prompts = {
@@ -247,10 +232,10 @@ Chapter 2: [Title] ([Title in local language if applicable])
 Initial Premise:
 {initial_prompt}
 """,
-            "writer": f"""You are a creative writing assistant. Your task is to write a chapter for a novel based on the provided outline context. Ensure all story beats are completed, and don't introduce new plot points beyond the outline.
+            "writer": f"""You are a creative writing assistant. Your task is to write a chapter for a novel based on the provided chapter outline and story synopsis. Ensure all story beats are completed, and don't introduce new plot points beyond the outline.
 
-### Outline Context
-{outline_context}
+### Story Synopsis
+{synopsis_context}
 
 ---
 
@@ -259,11 +244,11 @@ Mark drafts with 'SCENE:' and final versions with 'SCENE FINAL:'
 """,
             "editor": f"""You are an expert editor ensuring quality and consistency.
 
-Your task is to review and improve the provided chapter content based on the provided outline context and the user's request, 
+Your task is to review and improve the provided chapter content based on the provided chapter outline, story synopsis and the user's request, 
 adhering to the following directives at all times.
 
-### Outline Context
-{outline_context}
+### Story Synopsis
+{synopsis_context}
 
 ---
 ### Core Directives
