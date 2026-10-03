@@ -53,9 +53,6 @@ Based on the following:
 - **Scenes:**
 {scene_details}
 
-- **Action Beats:**
-{action_beats}
-
 - **Previous chapters:**
 {previous_context}
 
@@ -65,7 +62,7 @@ Based on the following:
 ---
 
 Write a complete chapter that:
-1. Follows the outlined plot points and action beats if provided
+1. Follows the outlined plot points
 2. Maintains consistent character voices and development
 3. Incorporates world-building details naturally
 4. Creates engaging prose with a mix of dialogue, action, and description
@@ -95,9 +92,6 @@ Based on the following:
 - **Scenes:**
 {scene_details}
 
-- **Action Beats:**
-{action_beats}
-
 - **Previous chapters:**
 {previous_context}
 
@@ -109,7 +103,7 @@ Based on the following:
 Provide a comprehensive edit that:
 1. Improves prose quality and flow
 2. Ensures character consistency
-3. Ensures consistency with the outlined plot points and action beats if provided
+3. Ensures consistency with the outlined plot points
 4. Enhances descriptive elements
 5. Strengthens dialogue and character interactions
 6. Maintains continuity with established world and plot
@@ -130,7 +124,7 @@ Story so far:
 
 Optional guidance (use only if helpful):
 User input: {user_input}
-Action beats: {action_beats}
+Chapter outline: {chapter_outline}
 """
 
 # Inline revise prompt
@@ -138,7 +132,7 @@ INLINE_REVISE_PROMPT = """Revise only the text found between [passage] and [/pas
 
 Rules:
 - Output only the revised text. Do NOT include any tags or explanations.
-- Follow any optional user input, or action beats if they are present below. Ignore them if not.
+- Follow any optional user input, or the chapter outline if it is present below. Ignore them if not.
 - Preserve the meaning and intention of the original text.
 - Avoid unnecessary filler — all additions must serve tone, character, or clarity.
 
@@ -147,5 +141,5 @@ Rules:
 [/passage]
 
 User input: {user_input}  
-Action beats: {action_beats}
+Chapter outline: {chapter_outline}
 """

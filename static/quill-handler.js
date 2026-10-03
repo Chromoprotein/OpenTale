@@ -172,7 +172,7 @@ registerCustomQuillFeatures();
             }
 
             // State management
-            this.actionBeats = this.loadActionBeats();
+            this.chapterOutline = this.loadChapterOutline();
 
             this.quill = this.initializeEditor();
 
@@ -505,7 +505,7 @@ registerCustomQuillFeatures();
             const beginStream = async () => {
                 const userPrompt = promptInput.value;
                 const apiUrl = isRevise ? QuillHandler.API_REVISE_STREAM : QuillHandler.API_CONTINUE_STREAM;
-                const requestBody = { context: passage, action_beats: this.actionBeats };
+                const requestBody = { context: passage, chapter_outline: this.chapterOutline };
                 if (userPrompt) {
                     requestBody.user_prompt = userPrompt;
                 }
@@ -656,13 +656,13 @@ registerCustomQuillFeatures();
             }
         }
 
-        loadActionBeats() {
-            const actionBeatsJSON = this.hiddenInput.dataset.actionBeats;
-            if (actionBeatsJSON) {
+        loadChapterOutline() {
+            const chapterOutlineJSON = this.hiddenInput.dataset.chapterOutline;
+            if (chapterOutlineJSON) {
                 try {
-                    return JSON.parse(actionBeatsJSON);
+                    return JSON.parse(chapterOutlineJSON);
                 } catch (e) {
-                    console.error('Error parsing action beats:', e);
+                    console.error('Error parsing chapter outline:', e);
                     return '';
                 }
             }

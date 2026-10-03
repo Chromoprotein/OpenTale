@@ -96,47 +96,6 @@
                                     </div>
                                 </div>
                            </div>
-                           <div class="accordion-item">
-                                <h2 class="accordion-header">
-                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#actionBeatsCollapse">
-                                        Action Beats (Optional) {% if action_beats_content %}<span class="badge bg-success ms-2" style="font-size: 0.60em;">Content</span>{% endif %}
-                                    </button>
-                                </h2>
-                                <div id="actionBeatsCollapse" class="accordion-collapse collapse" data-bs-parent="#chapterAccordion">
-                                    <div class="accordion-body">
-                                        <p class="text-muted">Create a detailed, step-by-step outline of scenes and events here. When you generate the chapter, this structure will be used.</p>
-                                        <div id="actionBeatsContainer">
-                                            {% if action_beats_content %}
-                                                <form id="saveActionBeatsForm" action="/save_action_beats/{{ chapter.chapter_number }}" method="post">
-                                                    <div class="mb-3">
-                                                        {{ quill_editor('actionBeatsEditor', 'action_beats_content', action_beats_content) }}
-                                                    </div>
-                                                    <div class="d-flex">
-                                                        <button type="submit" class="btn btn-success btn-sm" id="saveActionBeatsBtn">Save Action Beats</button>
-                                                        <a href="/action_beats_chat/{{ chapter.chapter_number }}" class="btn btn-warning btn-sm ms-2">Go To Action Beats Editor</a>
-                                                        <button type="button" class="btn btn-outline-danger btn-sm ms-2" id="deleteActionBeatsBtn"><i class="bi bi-trash3 me-1"></i>Delete</button>
-                                                    </div>
-                                                </form>
-
-                                                <div id="savingActionBeatsIndicator" class="alert alert-info mt-3 d-none">
-                                                    <div class="d-flex align-items-center">
-                                                        <div class="spinner-border spinner-border-sm me-2" role="status">
-                                                            <span class="visually-hidden">Loading...</span>
-                                                        </div>
-                                                        <div>Saving Action Beats...</div>
-                                                    </div>
-                                                </div>
-                                            
-                                                <div id="savedActionBeatsIndicator" class="alert alert-success mt-3 d-none">
-                                                    <div>Action Beats saved successfully!</div>
-                                                </div>
-                                            {% else %}
-                                                <a href="/action_beats_chat/{{ chapter.chapter_number }}" class="btn btn-warning">Go To Action Beats Editor</a>
-                                            {% endif %}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
                         <div class="d-flex">
                             {% if chapter_content %}
@@ -180,7 +139,7 @@
                     <form id="saveChapterForm" action="/save_chapter/{{ chapter.chapter_number }}" method="post">
                         <div class="mb-3">
                             <label for="chapterContentEditor-hidden" class="form-label">Edit the chapter content if needed:</label>
-                            {{ quill_editor('chapterContentEditor', 'chapter_content', chapter_content, action_beats=action_beats_content) }}
+                            {{ quill_editor('chapterContentEditor', 'chapter_content', chapter_content, chapter_outline=chapter.prompt) }}
                         </div>
                         <div class="d-flex justify-content-between">
                             <div>
@@ -226,13 +185,11 @@ $(document).ready(function() {
         const masterPrompt = $('#masterPrompt').val();
         const pointOfView = $('#pointOfView').val();
         const tense = $('#tense').val();
-        const action_beats_content = $('#actionBeatsEditor-hidden').val();
 
         const requestData = {
             master_prompt: masterPrompt,
             point_of_view: pointOfView,
-            tense: tense,
-            action_beats_content: action_beats_content
+            tense: tense
         };
 
         let fullContent = '';
@@ -341,47 +298,6 @@ $(document).ready(function() {
         });
     });
  
-    // Save Action Beats
-    $('#saveActionBeatsForm').submit(function(e) {
-        e.preventDefault();
-        $('#savingActionBeatsIndicator').removeClass('d-none');
-        $('#savedActionBeatsIndicator').addClass('d-none');
-        $('#saveActionBeatsBtn').prop('disabled', true);
-        
-        $.ajax({
-            type: 'POST',
-            url: `/save_action_beats/{{ chapter.chapter_number }}`,
-            data: $(this).serialize(),
-            success: function() {
-                $('#savingActionBeatsIndicator').addClass('d-none');
-                $('#savedActionBeatsIndicator').removeClass('d-none');
-                $('#saveActionBeatsBtn').prop('disabled', false);
-                
-                // Hide the saved indicator after 3 seconds
-                setTimeout(function() {
-                    $('#savedActionBeatsIndicator').addClass('d-none');
-                }, 3000);
-            },
-            error: function() {
-                alert('Error saving action beats. Please try again.');
-                $('#savingActionBeatsIndicator').addClass('d-none');                
-                $('#saveActionBeatsBtn').prop('disabled', false);
-            }
-        });
-    });
-
-    // Delete Action Beats
-    $('#deleteActionBeatsBtn').click(function() {
-        confirmAction({ title: 'Delete Action Beats', message: 'Delete the action beats for this chapter? This cannot be undone.', confirmText: 'Delete' }, function() {
-            $.post(`/delete_action_beats/{{ chapter.chapter_number }}`).done(function() {
-                clearChatHistory('opentale_chat_action_beats_' + {{ chapter.chapter_number }});
-                window.location.reload();
-            }).fail(function() {
-                alert('Error deleting action beats. Please try again.');
-            });
-        });
-    });
-
     // Delete Chapter
     $('#deleteChapterBtn').click(function() {
         confirmAction({ title: 'Delete Chapter', message: 'Delete the current chapter content (and its WIP review) for this chapter? This cannot be undone. You can regenerate the chapter afterwards.', confirmText: 'Delete' }, function() {
@@ -455,13 +371,11 @@ $(document).ready(function() {
         const masterPrompt = $('#masterPrompt').val();
         const pointOfView = $('#pointOfView').val();
         const tense = $('#tense').val();
-        const action_beats_content = $('#actionBeatsEditor-hidden').val();
 
         const requestData = {
             master_prompt: masterPrompt,
             point_of_view: pointOfView,
             tense: tense,
-            action_beats_content: action_beats_content,
             show_prompt: true
         };
 
@@ -501,12 +415,9 @@ document.addEventListener('save-content', function(e) {
     // Determine which editor is active and trigger its save button
     const activeElement = document.activeElement;
     const chapterEditor = document.getElementById('chapterContentEditor');
-    const actionBeatsEditor = document.getElementById('actionBeatsEditor');
 
     if (chapterEditor && chapterEditor.contains(activeElement)) {
         $('#saveChapterBtn').click();
-    } else if (actionBeatsEditor && actionBeatsEditor.contains(activeElement)) {
-        $('#saveActionBeatsBtn').click();
     }
 });
 </script>

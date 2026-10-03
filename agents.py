@@ -103,21 +103,6 @@ class BookAgents:
             context += f"\n\nThe Story Synopsis is:\n\n{synopsis.strip()}"
         messages.append({"role": "system", "content": context})
 
-    def _add_action_beats_context(
-        self,
-        messages: List[Dict],
-        chapter_summary: str,
-        world_theme: str,
-        characters: str,
-    ) -> None:
-        """Add the target chapter's summary, world and characters as context."""
-        messages.append(
-            {
-                "role": "system",
-                "content": f"Chapter Summary:\n\n{chapter_summary}\n\nWorld:\n\n{world_theme}\n\nCharacters:\n\n{characters}",
-            }
-        )
-
     def _save_debug_messages(
         self, messages: List[Dict], agent_name: str, request_type: str
     ):
@@ -231,19 +216,6 @@ The synopsis should be concise and complete:
 
 The final output should be only the complete synopsis.
 """,
-            "action_beats_generator": """You are a collaborative, creative assistant helping an author write detailed story beats base on a chapter summary to flesh out the chapter. 
-            
-            You can include details such as: what actions the characters take, the characters' feelings and reactions, who gets dialogue, what sensory details the characters notice, new information, new obstacles, things the characters remember, characters interacting with the surroundings, changes in the surroundings, etc. 
-            
-            Don't try to fit every type of detail in the chapter if it isn't relevant - only add details that fit naturally.
-
-Format your output EXACTLY as:
-ACTION_BEATS:
-- Beat 1: [Detailed description]
-- Beat 2: [Detailed description]
-- Beat 3: [Detailed description]
-
-""",
             "outline_creator": f"""Generate a detailed outline for a novel, targeting approximately {num_chapters} chapters.
 
 Start with "OUTLINE:" and end with "END OF OUTLINE"
@@ -341,21 +313,6 @@ Organize your response as a document covering:
 6. Environment and atmosphere: [natural world aspects]
 
 Add necessary details to fill any gaps, while staying true to everything established in the chat history.
-""",
-            # Add a special system prompt for conversational action beats building
-            "action_beats_chat": """You are a collaborative, creative assistant helping an author brainstorm and refine story beats for a chapter.
-
-Your approach during this brainstorming phase:
-1. Focus on DISCUSSING story beat ideas, not generating the complete list yet.
-2. Help explore different action sequences and plot advancements.
-3. Ask thoughtful questions about their vision for the story beats.
-4. Offer suggestions that build on their ideas, including:
-    - Potential conflicts.
-    - Ways to integrate character development into action.
-    - Sensory details and emotions.
-5. Maintain a friendly, conversational tone.
-6. NEVER generate a full list of story beats during this chat phase.
-
 """,
             # Add a special system prompt for conversational outline brainstorming
             "outline_creator_chat": f"""You are a collaborative, creative story development assistant helping an author brainstorm and develop their book outline.
@@ -1011,98 +968,4 @@ Format it as a properly structured outline with clear chapter sections and event
         # If debugging is enabled, wrap the stream to save the full response at the end
         return self._create_debug_stream_wrapper(
             stream, "outline_creator", "final_outline_stream_response"
-        )
-
-    def generate_chat_response_action_beats_stream(
-        self, chat_history, chapter_summary, world_theme, characters, user_message
-    ):
-        """Generate a streaming chat response about action beats creation."""
-        # Format messages for the API call
-        messages = [
-            {"role": "system", "content": self.system_prompts["action_beats_chat"]}
-        ]
-
-        # Add chapter summary, world and character context
-        self._add_action_beats_context(
-            messages, chapter_summary, world_theme, characters
-        )
-
-        # Add conversation context from chat history
-        for message in chat_history:
-            if message["role"] == "user":
-                messages.append({"role": "user", "content": message["content"]})
-            else:
-                messages.append({"role": "assistant", "content": message["content"]})
-
-        # Add the latest user message
-        messages.append({"role": "user", "content": user_message})
-
-        self._save_debug_messages(
-            messages, "action_beats_chat", "chat_action_beats_stream_request"
-        )
-
-        # Make the API call with streaming enabled
-        stream = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            **self._sampling_kwargs(),
-            stream=True,
-        )
-
-        if not self.debug:
-            return stream
-
-        # If debugging is enabled, wrap the stream to save the full response at the end
-        return self._create_debug_stream_wrapper(
-            stream, "action_beats_chat", "chat_action_beats_stream_response"
-        )
-
-    def generate_final_action_beats_stream(
-        self, chat_history, chapter_summary, world_theme, characters, num_beats
-    ):
-        """Generate the final action beats based on chat history using streaming."""
-        # Format messages for the API call
-        messages = [
-            {"role": "system", "content": self.system_prompts["action_beats_generator"]}
-        ]
-
-        # Add chapter summary, world and character context
-        self._add_action_beats_context(
-            messages, chapter_summary, world_theme, characters
-        )
-
-        # Add conversation context from chat history
-        for message in chat_history:
-            if message["role"] == "user":
-                messages.append({"role": "user", "content": message["content"]})
-            else:
-                messages.append({"role": "assistant", "content": message["content"]})
-
-        # Add the final instruction to create the complete action beat profiles
-        messages.append(
-            {
-                "role": "user",
-                "content": f"Based on our conversation, please generate the chapter's action beats, targeting approximately {num_beats} - you may produce a few more or fewer if the chapter's pacing or structure calls for it. Ensure proper nouns are used instead of pronouns.",
-            }
-        )
-
-        # Save the messages for debugging
-        self._save_debug_messages(
-            messages, "action_beats_generator", "final_action_beats_stream_request"
-        )
-
-        # Make the API call with streaming enabled
-        stream = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            **self._sampling_kwargs(),
-            stream=True,
-        )
-
-        if not self.debug:
-            return stream
-
-        # If debugging is enabled, wrap the stream to save the full response at the end
-        return self._create_debug_stream_wrapper(
-            stream, "action_beats_generator", "final_action_beats_stream_response"
         )
