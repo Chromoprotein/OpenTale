@@ -7,18 +7,8 @@
 
 {% block content %}
 <div class="row">
-    {% if not world_theme %}
-    <div class="col-12 mb-4">
-        <div class="alert alert-warning">
-            <strong>Warning:</strong> You need to create a world setting first. <a href="/world" class="alert-link">Go to World Creation</a>.
-        </div>
-    </div>
-    {% endif %}
-    
-    {% if world_theme %}
     <!-- Chat interface -->
     <div class="col-12 mb-4" id="chatContainer">
-        {% if synopsis or world_theme %}
         <div class="accordion mb-4" id="charactersContextAccordion" style="max-width: 80%">
             {% if synopsis %}
             <div class="accordion-item">
@@ -34,6 +24,7 @@
                 </div>
             </div>
             {% endif %}
+            {% if world_theme %}
             <div class="accordion-item">
                 <h2 class="accordion-header">
                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#fullWorldSetting">
@@ -46,6 +37,7 @@
                     </div>
                 </div>
             </div>
+            {% endif %}
             <div class="accordion-item">
                 <h2 class="accordion-header">
                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#numCharactersCollapse">
@@ -60,7 +52,6 @@
                 </div>
             </div>
         </div>
-        {% endif %}
         <div id="chatMessages">
             <!-- Chat messages will appear here -->
             <div class="mb-3">
@@ -92,7 +83,6 @@
             </div>
         </div>
     </div>
-    {% endif %}
     
     <div class="col-12" id="charactersResultContainer" {% if not characters %}style="display: none;"{% endif %}>
         <form id="saveCharactersForm" action="/save_characters" method="post">
@@ -106,7 +96,11 @@
                     <button type="submit" class="btn btn-success" id="saveCharactersBtn">Save Changes</button>
                     <button type="button" class="btn btn-outline-danger" id="deleteCharactersBtn"><i class="bi bi-trash3 me-1"></i>Delete</button>
                 </div>
+                {% if world_theme %}
                 <a href="/outline" class="btn btn-primary">Continue to Outline</a>
+                {% else %}
+                <a href="/world" class="btn btn-primary">Continue to World Setting</a>
+                {% endif %}
             </div>
         </form>
         

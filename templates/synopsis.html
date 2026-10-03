@@ -55,7 +55,19 @@
                     <button type="submit" class="btn btn-success" id="saveSynopsisBtn">Save Changes</button>
                     <button type="button" class="btn btn-outline-danger" id="deleteSynopsisBtn"><i class="bi bi-trash3 me-1"></i>Delete</button>
                 </div>
+                {% if has_world and has_characters %}
+                <a href="/outline" class="btn btn-primary">Continue to Outline</a>
+                {% elif has_world %}
+                <a href="/characters" class="btn btn-primary">Continue to Characters</a>
+                {% elif has_characters %}
                 <a href="/world" class="btn btn-primary">Continue to World Setting</a>
+                {% else %}
+                <div class="d-flex align-items-center gap-2">
+                    <span class="text-muted small">World or characters first — your call:</span>
+                    <a href="/world" class="btn btn-primary">World Setting</a>
+                    <a href="/characters" class="btn btn-outline-primary">Characters</a>
+                </div>
+                {% endif %}
             </div>
         </form>
         

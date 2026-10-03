@@ -290,6 +290,8 @@ def synopsis():
         synopsis=synopsis_content,
         topic=settings.get("topic", ""),
         chapters=chapters,
+        has_world=bool(get_world_theme()),
+        has_characters=bool(get_characters()),
     )
 
 
@@ -449,6 +451,7 @@ def world():
     return render_template(
         "world.html",
         world_theme=world_theme,
+        characters=get_characters(),
         synopsis=synopsis,
         topic=settings.get("topic", ""),
         chapters=chapters,
@@ -475,7 +478,7 @@ def world_chat():
 
     # Generate response using the direct chat method
     ai_response = book_agents.generate_chat_response_world(
-        chat_history, topic, get_synopsis(), user_message
+        chat_history, topic, get_synopsis(), user_message, get_characters()
     )
 
     # Clean the response
@@ -504,7 +507,7 @@ def world_chat_stream():
 
     # Generate streaming response
     stream = book_agents.generate_chat_response_world_stream(
-        chat_history, topic, get_synopsis(), user_message
+        chat_history, topic, get_synopsis(), user_message, get_characters()
     )
 
     def generate():
@@ -548,7 +551,9 @@ def finalize_world():
     book_agents.create_agents(topic, 0)
 
     # Generate the final world setting using the direct method
-    world_theme = book_agents.generate_final_world(chat_history, topic, get_synopsis())
+    world_theme = book_agents.generate_final_world(
+        chat_history, topic, get_synopsis(), get_characters()
+    )
 
     # Clean and save world theme to file
     world_theme = world_theme.strip()
@@ -573,7 +578,7 @@ def finalize_world_stream():
 
     # Generate the final world setting using streaming
     stream = book_agents.generate_final_world_stream(
-        chat_history, topic, get_synopsis()
+        chat_history, topic, get_synopsis(), get_characters()
     )
 
     def generate():
@@ -700,11 +705,11 @@ def outline():
         return redirect("/synopsis")
 
     if not os.path.exists(WORLD_FILE):
-        flash("You need to create a world setting first.", "warning")
+        flash("You need a world setting before the outline.", "warning")
         return redirect("/world")
 
     if not os.path.exists(CHARACTERS_FILE):
-        flash("You need to create characters first.", "warning")
+        flash("You need characters before the outline.", "warning")
         return redirect("/characters")
 
     # Get world theme and characters
@@ -1575,12 +1580,6 @@ def characters_chat():
     num_characters = data.get("num_characters", 3)
     world_theme = get_world_theme()
 
-    # Ensure we have a world theme
-    if not world_theme:
-        return jsonify(
-            {"error": "World theme not found. Please complete world building first."}
-        )
-
     # Initialize agents for character creation
     book_agents = BookAgents(agent_config)
     book_agents.create_agents(world_theme, 0)
@@ -1604,12 +1603,6 @@ def characters_chat_stream():
     chat_history = data.get("chat_history", [])
     num_characters = data.get("num_characters", 3)
     world_theme = get_world_theme()
-
-    # Ensure we have a world theme
-    if not world_theme:
-        return jsonify(
-            {"error": "World theme not found. Please complete world building first."}
-        )
 
     # Initialize agents for character creation
     book_agents = BookAgents(agent_config)
@@ -1656,12 +1649,6 @@ def finalize_characters_stream():
     chat_history = data.get("chat_history", [])
     num_characters = data.get("num_characters", 3)
     world_theme = get_world_theme()
-
-    # Ensure we have a world theme
-    if not world_theme:
-        return jsonify(
-            {"error": "World theme not found. Please complete world building first."}
-        )
 
     # Initialize agents for character creation
     book_agents = BookAgents(agent_config)

@@ -1,7 +1,7 @@
 """Define the API client for book generation system"""
 
 import os
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from openai import OpenAI
 
@@ -53,24 +53,58 @@ class BookAgents:
             token_param: self.agent_config.get("max_tokens", 10000),
         }
 
+    def _add_context_blocks(
+        self, messages: List[Dict], blocks: List[Tuple[str, str]]
+    ) -> None:
+        """Append the non-empty context blocks as a single system message.
+
+        Each block is a (heading, content) pair. A block whose content is empty
+        or whitespace-only is dropped entirely, heading included, so callers can
+        pass optional context without emitting a heading followed by nothing.
+        Order is preserved: artifact first, story synopsis last.
+        """
+        sections = [
+            f"{heading}\n\n{content.strip()}"
+            for heading, content in blocks
+            if content and content.strip()
+        ]
+        if sections:
+            messages.append({"role": "system", "content": "\n\n".join(sections)})
+
     def _add_synopsis_context(self, messages: List[Dict], synopsis: str) -> None:
         """Add the finalized synopsis as context to the messages, if present."""
-        if synopsis and synopsis.strip():
-            messages.append(
-                {
-                    "role": "system",
-                    "content": f"The book's story synopsis is:\n\n{synopsis.strip()}",
-                }
-            )
+        self._add_context_blocks(messages, [("The Story Synopsis is:", synopsis)])
 
     def _add_world_and_synopsis_context(
         self, messages: List[Dict], world_theme: str, synopsis: str
     ) -> None:
-        """Add the world setting and finalized synopsis as context to the messages."""
-        context = f"The book takes place in the following world:\n\n{world_theme}"
-        if synopsis and synopsis.strip():
-            context += f"\n\nThe Story Synopsis is:\n\n{synopsis.strip()}"
-        messages.append({"role": "system", "content": context})
+        """Add the world setting and finalized synopsis as context, if present.
+
+        Either may be missing: the author can design characters before the world.
+        """
+        self._add_context_blocks(
+            messages,
+            [
+                ("The book takes place in the following world:", world_theme),
+                ("The Story Synopsis is:", synopsis),
+            ],
+        )
+
+    def _add_characters_and_synopsis_context(
+        self, messages: List[Dict], characters: str, synopsis: str
+    ) -> None:
+        """Add the characters and finalized synopsis as context, if present.
+
+        Used by the worldbuilding agents so a world designed after the cast can
+        fit the characters that already exist.
+        """
+        self._add_context_blocks(
+            messages,
+            [
+                ("The characters include:", characters),
+                ("The Story Synopsis is:", synopsis),
+            ],
+        )
 
     def _add_world_characters_and_synopsis_context(
         self,
@@ -80,13 +114,14 @@ class BookAgents:
         synopsis: str,
     ) -> None:
         """Add the world setting, characters and finalized synopsis as context."""
-        context = (
-            f"The book takes place in the following world:\n\n{world_theme}"
-            f"\n\nThe characters include:\n\n{characters}"
+        self._add_context_blocks(
+            messages,
+            [
+                ("The book takes place in the following world:", world_theme),
+                ("The characters include:", characters),
+                ("The Story Synopsis is:", synopsis),
+            ],
         )
-        if synopsis and synopsis.strip():
-            context += f"\n\nThe Story Synopsis is:\n\n{synopsis.strip()}"
-        messages.append({"role": "system", "content": context})
 
     def _save_debug_messages(
         self, messages: List[Dict], agent_name: str, request_type: str
@@ -143,7 +178,7 @@ class BookAgents:
 
         # Define system prompts for each agent type
         self.system_prompts = {
-            "character_generator": """You are a creative assistant helping an author develop the cast for their book. When given a world setting, create detailed profiles for characters that fit in it. 
+            "character_generator": """You are a creative assistant helping an author develop the cast for their book. If a world setting has already been established, create detailed profiles for characters that fit in it; otherwise create characters whose backgrounds naturally imply the world they inhabit.
             Treat the target number of characters as a guideline, not a hard limit.
 
 Format your output EXACTLY as:
@@ -167,12 +202,12 @@ CHARACTER_PROFILES:
 
 [And so on for all requested characters]
 
-Ensure characters fit logically within the established world setting.
+Ensure characters fit logically within the established world setting when one is available.
 """,
             # Add a system prompt for conversational character brainstorming
             "character_generator_chat": """You are a collaborative, creative assistant helping an author develop the cast for their book.
 
-Your primary goal is to help the author shape distinct, memorable characters that fit the established world:
+Your primary goal is to help the author shape distinct, memorable characters that fit the established world. If no world setting has been established yet, let the world emerge from the characters instead:
 1.  **Role**: What part does each character play in the story (protagonist, antagonist, ally, foil)?
 2.  **Core traits and flaws**: What makes them interesting, and what holds them back?
 3.  **Motivations and goals**: What are they driving at, and why does it matter to them?
@@ -183,7 +218,7 @@ Your approach:
 *   Build the cast incrementally, focusing on one character at a time rather than listing everyone at once.
 *   Start by asking the author who the central character is and what they want.
 *   Proactively probe for the weaknesses and contradictions that make a character feel real.
-*   Offer concrete suggestions grounded in the established world, and ask clarifying questions to sharpen them.
+*   Offer concrete suggestions grounded in the established world when there is one, and ask clarifying questions to sharpen them.
 *   Pay attention to which characters the author keeps returning to, and which ones they seem to drop.
 *   Maintain a friendly, conversational tone.
 *   NEVER generate the final formatted profiles during this chat phase. This is for brainstorming only.
@@ -283,6 +318,7 @@ Your approach:
     - Economy and resources
 4. Maintain a friendly, conversational tone
 5. Keep track of their preferences and established world elements
+6. If the book already has characters, build a world that fits them: their motives should be answerable by the world's politics, economy and culture, and the places they travel should matter to their arcs
 
 When they're ready to finalize, you'll help organize their ideas into a comprehensive world setting document.
 """,
@@ -298,6 +334,8 @@ Organize your response as a document covering:
 6. Environment and atmosphere: [natural world aspects]
 
 Add necessary details to fill any gaps, while staying true to everything established in the chat history.
+
+If characters have already been established, the world must fit them: their motives should be answerable by the world's politics, economy and culture, and the locations they inhabit should serve their arcs.
 """,
             # Add a special system prompt for conversational outline brainstorming
             "outline_creator_chat": f"""You are a collaborative, creative story development assistant helping an author brainstorm and develop their book outline.
@@ -422,7 +460,7 @@ When they're ready to finalize, you'll help organize their ideas into a overview
         return self._create_debug_stream_wrapper(stream, agent_name, "stream_response")
 
     def generate_chat_response_world(
-        self, chat_history, topic, synopsis, user_message
+        self, chat_history, topic, synopsis, user_message, characters=""
     ) -> str:
         """Generate a chat response based on conversation history"""
         # Format the messages for the API call
@@ -430,8 +468,8 @@ When they're ready to finalize, you'll help organize their ideas into a overview
             {"role": "system", "content": self.system_prompts["world_builder_chat"]}
         ]
 
-        # Add the story synopsis context
-        self._add_synopsis_context(messages, synopsis)
+        # Add the existing characters and the story synopsis context
+        self._add_characters_and_synopsis_context(messages, characters, synopsis)
 
         # Add conversation history
         for entry in chat_history:
@@ -452,7 +490,7 @@ When they're ready to finalize, you'll help organize their ideas into a overview
         return completion.choices[0].message.content
 
     def generate_chat_response_world_stream(
-        self, chat_history, topic, synopsis, user_message
+        self, chat_history, topic, synopsis, user_message, characters=""
     ):
         """Generate a streaming chat response based on conversation history"""
         # Format the messages for the API call
@@ -460,8 +498,8 @@ When they're ready to finalize, you'll help organize their ideas into a overview
             {"role": "system", "content": self.system_prompts["world_builder_chat"]}
         ]
 
-        # Add the story synopsis context
-        self._add_synopsis_context(messages, synopsis)
+        # Add the existing characters and the story synopsis context
+        self._add_characters_and_synopsis_context(messages, characters, synopsis)
 
         # Add conversation history
         for entry in chat_history:
@@ -567,7 +605,9 @@ When they're ready to finalize, you'll help organize their ideas into a overview
             stream, "story_planner", "final_synopsis_stream_response"
         )
 
-    def _build_final_world_messages(self, chat_history, topic, synopsis) -> List[Dict]:
+    def _build_final_world_messages(
+        self, chat_history, topic, synopsis, characters=""
+    ) -> List[Dict]:
         """Build the message array for the final world-setting pass.
 
         Shared by the streaming and non-streaming finalize paths so both emit an
@@ -580,8 +620,8 @@ When they're ready to finalize, you'll help organize their ideas into a overview
             }
         ]
 
-        # Add the story synopsis context
-        self._add_synopsis_context(messages, synopsis)
+        # Add the existing characters and the story synopsis context
+        self._add_characters_and_synopsis_context(messages, characters, synopsis)
 
         # Add conversation context from chat history
         for entry in chat_history:
@@ -598,13 +638,17 @@ When they're ready to finalize, you'll help organize their ideas into a overview
 
         return messages
 
-    def generate_final_world(self, chat_history, topic, synopsis) -> str:
+    def generate_final_world(
+        self, chat_history, topic, synopsis, characters=""
+    ) -> str:
         """Generate final world setting based on chat history.
 
         Blocking counterpart to generate_final_world_stream: consumes the same
         stream and returns the full document as a string.
         """
-        stream = self.generate_final_world_stream(chat_history, topic, synopsis)
+        stream = self.generate_final_world_stream(
+            chat_history, topic, synopsis, characters
+        )
 
         content = []
         for chunk in stream:
@@ -618,9 +662,13 @@ When they're ready to finalize, you'll help organize their ideas into a overview
 
         return "".join(content)
 
-    def generate_final_world_stream(self, chat_history, topic, synopsis):
+    def generate_final_world_stream(
+        self, chat_history, topic, synopsis, characters=""
+    ):
         """Generate the final world setting based on the chat history using streaming."""
-        messages = self._build_final_world_messages(chat_history, topic, synopsis)
+        messages = self._build_final_world_messages(
+            chat_history, topic, synopsis, characters
+        )
 
         # Save the messages for debugging
         self._save_debug_messages(

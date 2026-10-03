@@ -71,8 +71,8 @@ http://localhost:5000
 ```
 
 4. Follow the step-by-step process in the web interface:
-   - Create a world setting
-   - Generate characters
+   - Create a story synopsis
+   - Design a world setting or generate characters — in either order
    - Create a book outline
    - Work chapter by chapter to generate your book
 
@@ -80,8 +80,14 @@ http://localhost:5000
 
 The application guides you through a logical book creation process:
 
-1. **World Building**: Define the setting, time period, and environment for your story
-2. **Character Creation**: Generate the main characters for your book
+1. **Synopsis**: Draft the story premise that guides everything after it
+2. **World Building and Character Creation** (either order):
+   - World Building: Define the setting, time period, and environment for your story
+   - Character Creation: Generate the main characters for your book
+
+   These two steps are independent — start with whichever suits your writing
+   process. Each one uses the other as context if it already exists, so a world
+   built after the cast still fits them, and vice versa.
 3. **Outline Generation**: Create a chapter-by-chapter outline of your story
 4. **Chapter Writing**:
    - Generate individual scenes for a chapter
