@@ -30,6 +30,18 @@ def _is_reasoning_model(model: str) -> bool:
     return re.search(r"(^|[^a-z0-9])o[1-6](\b|-)", model) is not None
 
 
+def _as_bool(value: str, default: bool = True) -> bool:
+    """Parse a boolean env var, falling back to default when unset/blank."""
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in ("true", "1", "t", "yes", "y", "on"):
+        return True
+    if normalized in ("false", "0", "f", "no", "n", "off"):
+        return False
+    return default
+
+
 def get_config() -> Dict:
     """Get the configuration for the agents"""
 
@@ -49,7 +61,9 @@ def get_config() -> Dict:
     # while most other models and OpenAI-compatible servers expect max_tokens.
     token_param = (_get_env(["TOKEN_PARAM"], "auto") or "auto").strip().lower()
     if token_param not in ("max_tokens", "max_completion_tokens"):
-        token_param = "max_completion_tokens" if _is_reasoning_model(model) else "max_tokens"
+        token_param = (
+            "max_completion_tokens" if _is_reasoning_model(model) else "max_tokens"
+        )
 
     # Temperature default is 1, which is the only value OpenAI reasoning models accept.
     temperature = float(_get_env(["TEMPERATURE", "temperature"], 1))
@@ -65,9 +79,18 @@ def get_config() -> Dict:
         "timeout": int(_get_env(["TIMEOUT"], 1000)),
         "cache_seed": None,
         "token_param": token_param,
+        # Constrain the outline to a JSON schema when the endpoint supports it.
+        # Gateways such as OpenRouter or Ollama may reject response_format, in
+        # which case the outline falls back to asking for markdown.
+        "structured_output": _as_bool(_get_env(["STRUCTURED_OUTPUT"]), True),
         "max_tokens": int(
             _get_env(
-                ["MAX_TOKENS", "max_tokens", "MAX_COMPLETION_TOKENS", "max_completion_tokens"],
+                [
+                    "MAX_TOKENS",
+                    "max_tokens",
+                    "MAX_COMPLETION_TOKENS",
+                    "max_completion_tokens",
+                ],
                 10000,
             )
         ),

@@ -22,6 +22,13 @@ from flask import (
 import prompts
 from agents import PROMPT_DEBUGGING_DIR, BookAgents, check_openai_connection
 from config import get_config
+from outline_schema import (
+    OutlineValidationError,
+    normalize_outline,
+    outline_to_chapters,
+    parse_legacy_outline_markdown,
+    render_outline_markdown,
+)
 
 # Constants for file paths
 BOOK_OUTPUT_DIR = "book_output"
@@ -64,11 +71,46 @@ def get_characters():
 
 
 def get_outline():
-    """Get outline from file."""
+    """Get the structured outline, or None if there isn't a usable one.
+
+    Outlines are stored as JSON. Books created before that switch kept the
+    outline as markdown in ``outline.txt``; those are migrated once, on read, so
+    the old file is upgraded in place the first time it is touched.
+    """
+    if os.path.exists(OUTLINE_JSON_FILE):
+        try:
+            with open(OUTLINE_JSON_FILE, "r", encoding="utf-8") as f:
+                return normalize_outline(json.load(f))
+        except (ValueError, OutlineValidationError) as e:
+            print(f"Could not read {OUTLINE_JSON_FILE}: {e}")
+
+    # Migrate a legacy markdown outline, if there is one.
     if os.path.exists(OUTLINE_FILE):
-        with open(OUTLINE_FILE, "r") as f:
-            return f.read().strip()
-    return ""
+        with open(OUTLINE_FILE, "r", encoding="utf-8") as f:
+            legacy = f.read()
+
+        outline = parse_legacy_outline_markdown(legacy)
+        if outline is not None:
+            save_outline_data(outline)
+            print(f"Migrated legacy markdown outline to {OUTLINE_JSON_FILE}")
+            return outline
+
+        # Unparseable: keep the old file so the author can still recover it by
+        # hand, and leave the structured outline absent rather than guessing.
+        print(
+            f"Could not recover any chapters from {OUTLINE_FILE}. "
+            "The file has been left untouched; re-create the outline to continue."
+        )
+
+    return None
+
+
+def save_outline_data(outline):
+    """Validate and persist the structured outline. Returns the normalized form."""
+    normalized = normalize_outline(outline)
+    with open(OUTLINE_JSON_FILE, "w", encoding="utf-8") as f:
+        json.dump(normalized, f, indent=2, ensure_ascii=False)
+    return normalized
 
 
 def get_synopsis():
@@ -116,9 +158,8 @@ def get_chapters():
         scene_dir = os.path.join(
             CHAPTERS_DIR, f"chapter_{chapter['chapter_number']}_scenes"
         )
-        chapter["has_scenes"] = (
-            os.path.exists(scene_dir)
-            and any(f.endswith(TEXT_EXTENSION) for f in os.listdir(scene_dir))
+        chapter["has_scenes"] = os.path.exists(scene_dir) and any(
+            f.endswith(TEXT_EXTENSION) for f in os.listdir(scene_dir)
         )
     return chapters
 
@@ -135,7 +176,7 @@ def inject_chapters_enabled():
             has_content(SYNOPSIS_FILE)
             and has_content(WORLD_FILE)
             and has_content(CHARACTERS_FILE)
-            and has_content(OUTLINE_FILE)
+            and (has_content(OUTLINE_JSON_FILE) or has_content(OUTLINE_FILE))
         ),
     }
 
@@ -185,9 +226,7 @@ def get_scenes(chapter_number):
     scene_dir = os.path.join(CHAPTERS_DIR, f"chapter_{chapter_number}_scenes")
     if os.path.exists(scene_dir):
         scene_files = [f for f in os.listdir(scene_dir) if f.endswith(TEXT_EXTENSION)]
-        scene_files.sort(
-            key=lambda f: int(f.split("_")[1].split(".")[0])
-        )
+        scene_files.sort(key=lambda f: int(f.split("_")[1].split(".")[0]))
         for scene_file in scene_files:
             scene_path = os.path.join(scene_dir, scene_file)
             with open(scene_path, "r") as f:
@@ -260,9 +299,7 @@ def _get_chapter_style(settings, chapter_number):
     style = settings.get("chapters", {}).get(str(chapter_number)) or {}
     default_style = settings.get("default_style") or {}
     pov = (
-        style.get("point_of_view")
-        or default_style.get("point_of_view")
-        or DEFAULT_POV
+        style.get("point_of_view") or default_style.get("point_of_view") or DEFAULT_POV
     )
     tense = style.get("tense") or default_style.get("tense") or DEFAULT_TENSE
     return pov, tense
@@ -350,6 +387,7 @@ def synopsis_chat_stream():
 
         finally:
             _close_stream(stream)
+
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -407,6 +445,7 @@ def finalize_synopsis_stream():
 
         finally:
             _close_stream(stream)
+
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -532,6 +571,7 @@ def world_chat_stream():
 
         finally:
             _close_stream(stream)
+
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -610,6 +650,7 @@ def finalize_world_stream():
 
         finally:
             _close_stream(stream)
+
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -674,13 +715,6 @@ def save_characters():
     """Save edited characters"""
     characters_content = request.form.get("characters")
 
-    # The character_generator prompt asks for a CHARACTER_PROFILES: header, but
-    # nothing consumes it, so drop it rather than persisting it. Tolerate the
-    # markdown-escaped underscore the model sometimes emits.
-    characters_content = re.sub(
-        r"^\s*CHARACTER[\\\\_]*PROFILES:\s*", "", characters_content
-    )
-
     # Save to file
     with open(CHARACTERS_FILE, "w") as f:
         f.write(characters_content)
@@ -723,10 +757,7 @@ def outline():
         synopsis = f.read()
 
     # GET request - just show the page
-    outline_content = ""
-    if os.path.exists(OUTLINE_FILE):
-        with open(OUTLINE_FILE, "r") as f:
-            outline_content = f.read()
+    outline_data = get_outline()
 
     # Get chapter list
     chapters = get_chapters()
@@ -739,7 +770,7 @@ def outline():
         world_theme=world_theme,
         characters=characters,
         synopsis=synopsis,
-        outline=outline_content,
+        outline=outline_data,
         chapters=chapters,
         num_chapters=num_chapters,
     )
@@ -757,52 +788,96 @@ def chapters_list():
     return render_template("chapters.html", chapters=chapters)
 
 
+def _apply_outline(outline, allow_shrink_cleanup=True):
+    """Persist an outline, rebuild chapters.json, and prune files if it shrank.
+
+    Returns (chapters, saved_outline, error). ``error`` is set when the outline was
+    rejected, in which case nothing on disk has been touched.
+
+    ``allow_shrink_cleanup`` guards the destructive case: a shorter outline means
+    the author removed chapters on purpose, so their files should go. It is turned
+    off when the outline arrives from a source we cannot fully trust, so a partial
+    or malformed result can never delete written chapters.
+    """
+    # Read the existing chapter numbers before rebuilding, otherwise this
+    # compares the new structure against itself and never detects a shrink.
+    previous_numbers = {c["chapter_number"] for c in get_chapters()}
+
+    try:
+        chapters = build_chapters_from_outline(outline)
+    except OutlineValidationError as e:
+        print(f"Rejected outline: {e}")
+        return None, None, str(e)
+
+    # Written first, so the chapter numbers the cleanup compares against are the
+    # ones that were actually persisted.
+    saved = save_outline_data(outline)
+
+    if allow_shrink_cleanup and not previous_numbers.issubset(
+        {c["chapter_number"] for c in chapters}
+    ):
+        print("Outline shrank; removing files for chapters that no longer exist")
+        _cleanup_orphaned_chapter_files(chapters)
+
+    return chapters, saved, None
+
+
 @app.route("/generate_chapters", methods=["POST"])
 def generate_chapters():
-    """Generate chapters structure from existing outline"""
-    # Check if we have an outline
-    if not os.path.exists(OUTLINE_FILE):
-        return jsonify({"error": "Outline not found. Please create an outline first."})
+    """Build the chapter structure from the saved outline."""
+    outline = get_outline()
+    if outline is None:
+        return jsonify(
+            {
+                "error": "No usable outline found. Please create an outline first.",
+                "success": False,
+            }
+        )
 
-    # Get the outline content
-    with open(OUTLINE_FILE, "r") as f:
-        outline_content = f.read()
-
-    # Get the desired number of chapters
-    num_chapters = int(request.form.get("num_chapters", 10))
-
-    # Parse the outline into chapters
-    chapters = parse_outline_to_chapters(outline_content, num_chapters)
-
-    # Remove files belonging to chapters that no longer exist
-    _cleanup_orphaned_chapter_files(chapters)
-
-    # Save chapters to file
-    with open(CHAPTERS_JSON_FILE, "w") as f:
-        json.dump(chapters, f, indent=2)
+    chapters, _saved, error = _apply_outline(outline)
+    if error:
+        return jsonify({"error": error, "success": False})
 
     return jsonify({"success": True, "num_chapters": len(chapters)})
 
 
 @app.route("/save_outline", methods=["POST"])
 def save_outline():
-    """Save edited outline and generate chapters structure"""
-    outline_content = request.form.get("outline")
+    """Save an edited outline and rebuild the chapter structure.
 
-    # Save to file
-    with open(OUTLINE_FILE, "w") as f:
-        f.write(outline_content)
+    Accepts either the structured outline as JSON (from the chapter editors) or a
+    legacy markdown outline, which is parsed leniently.
+    """
+    payload = request.form.get("outline")
+    if payload is None and request.is_json:
+        payload = request.get_json(silent=True)
 
-    # Generate and save chapters
-    num_chapters = int(request.form.get("num_chapters", 10))
-    chapters = parse_outline_to_chapters(outline_content, num_chapters)
+    if payload is None:
+        return jsonify({"error": "No outline was submitted.", "success": False})
 
-    # Remove files belonging to chapters that no longer exist
-    _cleanup_orphaned_chapter_files(chapters)
+    # The editor posts JSON; a markdown draft arrives as a plain string.
+    outline = payload
+    if isinstance(payload, str):
+        stripped = payload.strip()
+        if stripped.startswith("{"):
+            outline = stripped
+        else:
+            outline = parse_legacy_outline_markdown(stripped)
 
-    # Save chapters to file
-    with open(CHAPTERS_JSON_FILE, "w") as f:
-        json.dump(chapters, f, indent=2)
+    if outline is None:
+        return jsonify(
+            {
+                "error": (
+                    "Could not read any chapters from that outline. It has not "
+                    "been saved and your existing chapters are untouched."
+                ),
+                "success": False,
+            }
+        )
+
+    chapters, _saved, error = _apply_outline(outline)
+    if error:
+        return jsonify({"error": error, "success": False})
 
     return jsonify({"success": True, "num_chapters": len(chapters)})
 
@@ -810,8 +885,9 @@ def save_outline():
 @app.route("/delete_outline", methods=["POST"])
 def delete_outline():
     """Delete the saved outline so it can be recreated."""
-    if os.path.exists(OUTLINE_FILE):
-        os.remove(OUTLINE_FILE)
+    for path in (OUTLINE_JSON_FILE, OUTLINE_FILE):
+        if os.path.exists(path):
+            os.remove(path)
 
     # Delete the chapter structure and all per-chapter files
     if os.path.exists(CHAPTERS_JSON_FILE):
@@ -878,7 +954,9 @@ def chapter(chapter_number):
         characters = get_characters()
 
         # Get the previous chapter's outline as continuity context
-        previous_chapter_outline = get_previous_chapter_outline(chapter_number, chapters)
+        previous_chapter_outline = get_previous_chapter_outline(
+            chapter_number, chapters
+        )
 
         # Initialize agents for chapter generation
         book_agents = BookAgents(agent_config, get_synopsis())
@@ -1084,6 +1162,7 @@ def _handle_chapter_stream(chapter_number, agent_name):
 
         finally:
             _close_stream(stream)
+
     # Return the streaming response
     return Response(
         stream_with_context(generate()),
@@ -1241,6 +1320,7 @@ def inline_llm_continue_stream():
 
         finally:
             _close_stream(stream)
+
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -1299,6 +1379,7 @@ def inline_llm_revise_stream():
 
         finally:
             _close_stream(stream)
+
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -1505,7 +1586,9 @@ def scene(chapter_number):
         characters = get_characters()
 
         # Get the previous chapter's outline as continuity context
-        previous_chapter_outline = get_previous_chapter_outline(chapter_number, chapters)
+        previous_chapter_outline = get_previous_chapter_outline(
+            chapter_number, chapters
+        )
 
         # Initialize agents
         book_agents = BookAgents(agent_config, get_synopsis())
@@ -1635,6 +1718,7 @@ def characters_chat_stream():
 
         finally:
             _close_stream(stream)
+
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -1688,6 +1772,7 @@ def finalize_characters_stream():
 
         finally:
             _close_stream(stream)
+
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -1783,6 +1868,7 @@ def outline_chat_stream():
 
         finally:
             _close_stream(stream)
+
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -1824,30 +1910,78 @@ def finalize_outline_stream():
             # Send a heartbeat to establish the connection
             yield 'data: {"content": ""}\n\n'
 
-            # Collect all chunks to save the complete response
             collected_content = []
+            finish_reason = None
 
             # Iterate through the stream to get each chunk
             for chunk in stream:
-                if (
-                    chunk.choices
-                    and len(chunk.choices) > 0
-                    and chunk.choices[0].delta
-                    and chunk.choices[0].delta.content is not None
-                ):
-                    content = chunk.choices[0].delta.content
-                    collected_content.append(content)
-                    # Send each token as it arrives
-                    yield f"data: {json.dumps({'content': content})}\n\n"
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
+                if choice.delta and choice.delta.content is not None:
+                    collected_content.append(choice.delta.content)
 
-            # Combine all chunks for the complete content
             complete_content = "".join(collected_content)
 
+            # A response cut off mid-object cannot be parsed, and half an outline
+            # is worse than none: report it instead of storing a truncated one.
+            if finish_reason == "length":
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "error": (
+                                "The outline was too long to complete and was "
+                                "cut off. Try asking for fewer chapters, or "
+                                "raise MAX_TOKENS in your .env."
+                            )
+                        }
+                    )
+                    + "\n\n"
+                )
+                yield 'data: {"content": "[DONE]"}\n\n'
+                return
+
+            # The model is constrained to the outline schema, but an endpoint
+            # without structured output support returns the markdown fallback.
+            # Validate before showing anything so the editor never opens on a
+            # broken outline.
+            try:
+                outline = normalize_outline(complete_content)
+            except OutlineValidationError:
+                outline = parse_legacy_outline_markdown(complete_content)
+
+            if outline is None:
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "error": (
+                                "The model did not return a usable outline. Try "
+                                "regenerating, or set STRUCTURED_OUTPUT=true in "
+                                "your .env if your endpoint supports it."
+                            )
+                        }
+                    )
+                    + "\n\n"
+                )
+                yield 'data: {"content": "[DONE]"}\n\n'
+                return
+
+            save_outline_data(outline)
+
+            # Structured output can't be rendered as it arrives, so send the
+            # finished outline in one piece. The client contract is unchanged.
+            yield f"data: {json.dumps({'content': render_outline_markdown(outline)})}\n\n"
+
             # Send completion marker
-            yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
+            yield 'data: {"content": "[DONE]"}\n\n'
 
         finally:
             _close_stream(stream)
+
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -1891,121 +2025,20 @@ def _cleanup_orphaned_chapter_files(chapters):
         save_settings(settings)
 
 
-def parse_outline_to_chapters(outline_content, num_chapters):
-    """Helper function to parse outline content into structured chapter format"""
+def build_chapters_from_outline(outline):
+    """Project the structured outline onto chapters.json and persist it.
 
-    # Clean content to simplify chapter extraction
-    outline_content = outline_content.replace("\r\n", "\n")
-    outline_content = re.sub(r"\n{2,}", "\n\n", outline_content)
+    Raises OutlineValidationError when the outline has no usable chapters. The
+    caller must treat that as a refusal to continue rather than substituting
+    placeholder chapters: the previous behaviour wrote "Content for chapter N"
+    entries and then deleted the author's real chapter files as orphans.
+    """
+    chapters = outline_to_chapters(outline)
 
-    # Strip extra newlines at the beginning and normalize newlines
-    outline_content = outline_content.strip()
+    with open(CHAPTERS_JSON_FILE, "w", encoding="utf-8") as f:
+        json.dump(chapters, f, indent=2, ensure_ascii=False)
 
-    chapters = []
-    try:
-        # Extract just the outline content (between OUTLINE: and END OF OUTLINE)
-        start_idx = outline_content.find("OUTLINE:")
-        end_idx = outline_content.find("END OF OUTLINE")
-        if start_idx != -1 and end_idx != -1:
-            outline_text = outline_content[
-                start_idx + len("OUTLINE:") : end_idx
-            ].strip()
-        else:
-            outline_text = outline_content
-
-        # Remove Act sections before parsing chapters
-        outline_text = re.sub(r"###\s+\**Act\s+\w+:.+\n", "", outline_text)
-        outline_text = re.sub(r"###\s+\**Epilogue\**.+\n", "", outline_text)
-
-        # Split by chapter using regex that accounts for optional ** around title
-        chapter_matches = re.finditer(
-            r"Chapter\s+(\d+):\s+\*?\*?([^\n*]+)\*?\*?", outline_text
-        )
-        seen_chapters = set()
-
-        for match in chapter_matches:
-            chapter_num = int(match.group(1))
-            chapter_title = match.group(2).strip()
-
-            # Skip duplicate chapter numbers
-            if chapter_num in seen_chapters:
-                continue
-
-            seen_chapters.add(chapter_num)
-
-            # Find the end of this chapter's content (start of next chapter or end of text)
-            start_pos = match.start()
-            next_chapter_match = re.search(
-                r"Chapter\s+(\d+):", outline_text[start_pos + 1 :]
-            )
-
-            if next_chapter_match:
-                end_pos = start_pos + 1 + next_chapter_match.start()
-                chapter_content = outline_text[start_pos:end_pos].strip()
-            else:
-                chapter_content = outline_text[start_pos:].strip()
-
-            # Extract just the content part, not including the chapter title line
-            content_lines = chapter_content.split("\n")[1:]  # Skip the title line
-            # Filter out empty lines and strip each line
-            content_lines = [line.strip() for line in content_lines if line.strip()]
-            # Join lines without adding trailing newline
-            chapter_description = (
-                "\n".join(content_lines).rstrip() if content_lines else ""
-            )
-
-            # Clean the chapter description by removing leading/trailing newlines and **
-            chapter_description = re.sub(
-                r"^\n+|\n+$", "", chapter_description
-            )  # Remove leading and trailing newlines
-            chapter_description = re.sub(
-                r"\*+$", "", chapter_description
-            )  # Remove trailing **
-
-            chapters.append(
-                {
-                    "chapter_number": chapter_num,
-                    "title": chapter_title,
-                    "prompt": chapter_description,
-                }
-            )
-
-        # Sort chapters by chapter number to ensure correct order
-        chapters.sort(key=lambda x: x["chapter_number"])
-
-        # Only use num_chapters as a fallback if no chapters are found
-        if not chapters:
-            print(
-                f"No chapters found in outline, creating {num_chapters} default chapters"
-            )
-            for i in range(1, num_chapters + 1):
-                chapters.append(
-                    {
-                        "chapter_number": i,
-                        "title": f"Chapter {i}",
-                        "prompt": f"Content for chapter {i}",
-                    }
-                )
-
-    except Exception as e:
-        # Fallback if parsing fails
-        print(f"Error parsing outline: {e}")
-        for i in range(1, num_chapters + 1):
-            chapters.append(
-                {
-                    "chapter_number": i,
-                    "title": f"Chapter {i}",
-                    "prompt": f"Content for chapter {i}",
-                }
-            )
-
-    # Print diagnostic info
-    print(f"Found {len(chapters)} chapters in the outline")
-
-    # Save to the correct filename
-    with open(CHAPTERS_JSON_FILE, "w") as f:
-        json.dump(chapters, f, indent=2)
-
+    print(f"Wrote {len(chapters)} chapters from the outline")
     return chapters
 
 
@@ -2016,6 +2049,100 @@ def api_chapters():
     all_chapters = get_chapters()
 
     return jsonify(all_chapters)
+
+
+@app.route("/api/outline", methods=["GET"])
+def api_outline():
+    """Return the structured outline, or null when there isn't one."""
+    outline = get_outline()
+    return jsonify({"outline": outline, "success": True})
+
+
+@app.route("/api/outline", methods=["PUT"])
+def api_save_outline():
+    """Replace the whole outline and rebuild the chapter structure."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Expected a JSON outline object.", "success": False})
+
+    chapters, saved, error = _apply_outline(payload)
+    if error:
+        return jsonify({"error": error, "success": False})
+
+    # Return the normalized outline so the client picks up server-side
+    # corrections such as renumbering.
+    return jsonify({"success": True, "num_chapters": len(chapters), "outline": saved})
+
+
+@app.route("/api/outline/chapter/<int:chapter_number>", methods=["PUT"])
+def api_save_outline_chapter(chapter_number):
+    """Update one chapter's outline fields, leaving the rest untouched.
+
+    The chapter's fields are edited as text in the UI and converted back into the
+    structured shape here, so the client never has to build outline JSON itself.
+    """
+    outline = get_outline()
+    if outline is None:
+        return jsonify({"error": "No outline to update.", "success": False})
+
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "Expected a JSON object of fields.", "success": False})
+
+    # Accept both {"fields": {...}} and a bare {...}.
+    fields = body.get("fields") if isinstance(body.get("fields"), dict) else body
+    if not isinstance(fields, dict):
+        return jsonify({"error": "Expected a JSON object of fields.", "success": False})
+
+    index = chapter_number - 1
+    if index < 0 or index >= len(outline["chapters"]):
+        return jsonify(
+            {
+                "error": f"Chapter {chapter_number} is not in the outline.",
+                "success": False,
+            }
+        )
+
+    chapter = outline["chapters"][index]
+    for field in (
+        "title",
+        "title_local",
+        "character_developments",
+        "setting",
+        "tone",
+    ):
+        if field in fields:
+            value = fields[field]
+            chapter[field] = (
+                value.strip() if isinstance(value, str) and value.strip() else None
+            )
+
+    if "key_events" in fields:
+        events = fields["key_events"]
+        if not isinstance(events, list):
+            return jsonify(
+                {"error": "'key_events' must be a list of strings.", "success": False}
+            )
+        chapter["key_events"] = [
+            e.strip() for e in events if isinstance(e, str) and e.strip()
+        ]
+
+    if "act_number" in fields:
+        chapter["act_number"] = fields["act_number"]
+
+    # Editing one chapter cannot shrink the outline, so never prune files here.
+    chapters, saved, error = _apply_outline(outline, allow_shrink_cleanup=False)
+    if error:
+        return jsonify({"error": error, "success": False})
+
+    return jsonify(
+        {
+            "success": True,
+            "num_chapters": len(chapters),
+            # From the saved copy, so the client sees the normalized chapter.
+            "chapter": saved["chapters"][index],
+        }
+    )
 
 
 @app.route("/api/paginated_chapters", methods=["GET"])

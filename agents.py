@@ -5,6 +5,8 @@ from typing import Dict, List, Tuple
 
 from openai import OpenAI
 
+from outline_schema import OUTLINE_JSON_SCHEMA
+
 # Constants
 PROMPT_DEBUGGING_DIR = "prompt_debugging"
 
@@ -238,31 +240,27 @@ The final output should be only the complete synopsis.
 """,
             "outline_creator": f"""Generate a detailed outline for a novel, targeting approximately {num_chapters} chapters.
 
-Start with "OUTLINE:" and end with "END OF OUTLINE"
+You are not asked to write prose. Fill in the structured outline you are given,
+aiming for roughly {num_chapters} chapters.
 
-YOU MUST USE EXACTLY THIS FORMAT FOR EACH CHAPTER:
+What makes a useful chapter entry:
+1. Number chapters sequentially from 1 with no gaps and no repeated numbers.
+2. Give every chapter a distinct, evocative title. If the book is written in a
+   language other than English, also give the title in that language; leave
+   title_local null when it would just repeat the English title.
+3. List at least 3 specific key events per chapter. Prefer concrete things that
+   happen -- a decision made, a betrayal revealed, a wound reopened -- over
+   vague statements about pacing or themes. Each event should read as a
+   instruction to the writer, not as a summary of the finished chapter.
+4. Describe the character developments the chapter carries: who changes, and how.
+5. Name the setting and its atmosphere.
+6. State the tone, and note where the tone shifts within the chapter.
+7. Keep the story coherent from beginning to end. Events in one chapter should
+   follow from the previous chapters, and the final chapters should resolve the
+   central conflict.
 
-Optional: ### [Act 1]: [Act Title] ([Act Title in local language if applicable])
-
-Chapter 1: [Title] ([Title in local language if applicable])
-- Key Events:
-    * [Event 1]
-    * [Event 2]
-    * [Event 3]
-- Character Developments: [Specific character moments and changes]
-- Setting: [Specific location and atmosphere]
-- Tone: [Specific emotional and narrative tone]
-
-Chapter 2: [Title] ([Title in local language if applicable])
-- Key Events:
-    * [Event 1]
-    * [Event 2]
-    * [Event 3]
-- Character Developments: [Specific character moments and changes]
-- Setting: [Specific location and atmosphere]
-- Tone: [Specific emotional and narrative tone]
-
-[CONTINUE THE SEQUENCE, TARGETING AROUND {num_chapters} CHAPTERS TOTAL]
+Group the chapters into acts if the story has a clear act structure, and set each
+chapter's act_number accordingly. Otherwise return an empty acts array.
 
 Initial Premise:
 {initial_prompt}
@@ -275,7 +273,7 @@ Initial Premise:
 ---
 
 Always reference the outline and previous content.
-Mark drafts with 'SCENE:' and final versions with 'SCENE FINAL:'
+Output only the chapter prose, with no preamble, commentary, or section markers.
 """,
             "editor": f"""You are an expert editor ensuring quality and consistency.
 
@@ -294,10 +292,7 @@ adhering to the following directives at all times.
 5. Return complete edited chapter
 6. Never ask to start the next chapter, as the next step is finalizing this chapter
 
-Format your responses:
-1. Start critiques with 'FEEDBACK:'
-2. Provide suggestions with 'SUGGEST:'
-3. Return full edited chapter with 'EDITED_SCENE:'
+Put any critique or suggestions before the chapter, then return the complete edited chapter last. Separate the two with a blank line, and do not label either section.
 
 ---
 
@@ -638,9 +633,7 @@ When they're ready to finalize, you'll help organize their ideas into a overview
 
         return messages
 
-    def generate_final_world(
-        self, chat_history, topic, synopsis, characters=""
-    ) -> str:
+    def generate_final_world(self, chat_history, topic, synopsis, characters="") -> str:
         """Generate final world setting based on chat history.
 
         Blocking counterpart to generate_final_world_stream: consumes the same
@@ -662,9 +655,7 @@ When they're ready to finalize, you'll help organize their ideas into a overview
 
         return "".join(content)
 
-    def generate_final_world_stream(
-        self, chat_history, topic, synopsis, characters=""
-    ):
+    def generate_final_world_stream(self, chat_history, topic, synopsis, characters=""):
         """Generate the final world setting based on the chat history using streaming."""
         messages = self._build_final_world_messages(
             chat_history, topic, synopsis, characters
@@ -943,10 +934,47 @@ When they're ready to finalize, you'll help organize their ideas into a overview
             stream, "outline_creator_chat", "chat_outline_stream_response"
         )
 
+    def _supports_structured_output(self) -> bool:
+        """Whether this endpoint accepts an OpenAI ``json_schema`` response format.
+
+        OpenAI and most compatible servers do. OpenRouter, Ollama and other
+        gateways may not, so the outline degrades to asking for markdown rather
+        than failing the request outright.
+        """
+        return self.agent_config.get("structured_output", True)
+
     def generate_final_outline_stream(
         self, chat_history, world_theme, characters, synopsis, num_chapters=10
     ):
-        """Generate the final outline based on chat history using streaming."""
+        """Generate the final outline based on chat history using streaming.
+
+        Returns an iterable of chunks. The content is JSON matching
+        ``OUTLINE_JSON_SCHEMA`` when the endpoint supports structured output, and
+        a legacy markdown outline otherwise. Callers should not assume either --
+        try :func:`outline_schema.normalize_outline` and fall back to
+        :func:`outline_schema.parse_legacy_outline_markdown`, as
+        ``finalize_outline_stream`` does.
+        """
+        structured = self._supports_structured_output()
+
+        # Only the fallback needs to be told how to lay the outline out in prose;
+        # with structured output the schema already decides that.
+        format_requirements = ""
+        if not structured:
+            format_requirements = """
+OUTPUT FORMAT (this endpoint does not support structured output, so plain text):
+- Begin with a line reading exactly: # OUTLINE
+- Start each act with a heading: ## Act <number>: <title>
+- Start each chapter with a heading: Chapter <number>: <title>
+- Under each chapter, list at least 3 key events as bullets:
+    - Key Event: <what happens>
+- Optionally add these bullets under a chapter:
+    - Character Developments: <how the cast changes>
+    - Setting: <where it happens>
+    - Tone: <the mood>
+- Do not add commentary before or after the outline.
+"""
+
         # Format messages for the API call
         messages = [
             {"role": "system", "content": self.system_prompts["outline_creator"]}
@@ -964,7 +992,7 @@ When they're ready to finalize, you'll help organize their ideas into a overview
             else:
                 messages.append({"role": "assistant", "content": message["content"]})
 
-        # Add the final instruction to create the complete outline with specific formatting guidance
+        # Add the final instruction to create the complete outline
         messages.append(
             {
                 "role": "user",
@@ -973,12 +1001,11 @@ When they're ready to finalize, you'll help organize their ideas into a overview
 CRITICAL REQUIREMENTS:
 1. Aim for roughly {num_chapters} chapters (a guideline, not a strict limit); number chapters sequentially from 1 without gaps or duplicates
 2. NEVER repeat chapter numbers or restart the numbering
-3. Follow the exact format specified in your instructions
-4. Each chapter must have a unique title and at least 3 specific key events
-5. Maintain a coherent story from beginning to end
+3. Each chapter must have a unique title and at least 3 specific key events
+4. Maintain a coherent story from beginning to end
 
-Format it as a properly structured outline with clear chapter sections and events. This will be the final outline for the book.
-""",
+This will be the final outline for the book.
+{format_requirements}""",
             }
         )
 
@@ -987,13 +1014,39 @@ Format it as a properly structured outline with clear chapter sections and event
             messages, "outline_creator", "final_outline_stream_request"
         )
 
+        # Constrain the response to the outline schema so the caller never has
+        # to parse prose to recover the book's structure.
+        request_kwargs = {}
+        if structured:
+            request_kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": OUTLINE_JSON_SCHEMA,
+            }
+
         # Make the API call with streaming enabled
-        stream = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            **self._sampling_kwargs(),
-            stream=True,
-        )
+        try:
+            stream = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                **request_kwargs,
+                **self._sampling_kwargs(),
+                stream=True,
+            )
+        except Exception as exc:
+            if not structured:
+                raise
+            # The endpoint rejected the schema. Retry as a markdown outline rather
+            # than failing the request, and tell the model the layout we will parse.
+            print(f"⚠️ Structured output unavailable, falling back to text: {exc}")
+            if self.debug:
+                print("Set STRUCTURED_OUTPUT=false in .env to skip this attempt.")
+            messages[-1]["content"] += format_requirements
+            stream = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                **self._sampling_kwargs(),
+                stream=True,
+            )
 
         if not self.debug:
             return stream
