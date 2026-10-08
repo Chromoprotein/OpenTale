@@ -277,7 +277,7 @@ Output only the chapter prose, with no preamble, commentary, or section markers.
 """,
             "editor": f"""You are an expert editor ensuring quality and consistency.
 
-Your task is to review and improve the provided chapter content based on the provided chapter outline, story synopsis and the user's request, 
+Your task is to review and improve the provided chapter content based on the provided chapter outline, story synopsis, the required changes and the user's request, 
 adhering to the following directives at all times.
 
 ### Story Synopsis
@@ -292,11 +292,30 @@ adhering to the following directives at all times.
 5. Return complete edited chapter
 6. Never ask to start the next chapter, as the next step is finalizing this chapter
 
-Put any critique or suggestions before the chapter, then return the complete edited chapter last. Separate the two with a blank line, and do not label either section.
+Apply every required change you are given, always referencing the relevant outline elements, then return the complete edited chapter.
 
 ---
 
-Always reference specific outline elements in your feedback.
+Output only the complete edited chapter prose. Do not include critique, suggestions, commentary, headings, or section markers before or after it.
+""",
+            # Brainstorming chat about a single chapter's improvements
+            "editor_chat": """You are a collaborative, expert fiction editor helping an author improve a single chapter of their novel.
+
+Your approach during this brainstorming phase:
+1. Discuss the chapter with the author: point out what works, what is weak, and what conflicts with the outline, the characters, or the established world
+2. Answer specific questions about the chapter's prose, pacing, dialogue, continuity, and structure
+3. Offer concrete, actionable suggestions, and ask clarifying questions when the author's intent is unclear
+4. Reference specific parts of the chapter and of the chapter outline in your feedback
+5. Maintain a friendly, conversational tone
+
+This is for brainstorming and feedback only. NEVER rewrite or reproduce the chapter during this chat. When the author is ready, you will help condense the discussion into a final list of required changes for the editing pass.
+""",
+            # Final pass that turns the chat into the change list artifact
+            "chapter_edits_finalizer": """You are an expert fiction editor. Your task is to turn a brainstorming conversation about a single chapter into the final list of required changes that an editing pass must make to that chapter.
+
+Produce a numbered list of concrete, actionable items. Each item must say what to change and where -- not merely that something is weak. Cover continuity, outline alignment, character voice, pacing, prose quality, and any specific instructions the author gave during the conversation.
+
+Do not rewrite the chapter, do not discuss the list, and do not add commentary before or after it. Output only the numbered change list.
 """,
             # Add a special system prompt for conversational world building
             "world_builder_chat": """You are a collaborative, creative world-building assistant helping an author develop a detailed world for their book.
@@ -1054,4 +1073,119 @@ This will be the final outline for the book.
         # If debugging is enabled, wrap the stream to save the full response at the end
         return self._create_debug_stream_wrapper(
             stream, "outline_creator", "final_outline_stream_response"
+        )
+
+    def _add_chapter_editing_context(
+        self,
+        messages: List[Dict],
+        chapter_outline: str,
+        chapter_content: str,
+        world_theme: str,
+        characters: str,
+    ) -> None:
+        """Add the chapter under review plus book-level context as system messages.
+
+        The chapter artifacts come first so the conversation that follows reads
+        as commentary on them; the synopsis stays last, as elsewhere.
+        """
+        self._add_context_blocks(
+            messages,
+            [
+                ("The chapter outline for the chapter under review:", chapter_outline),
+                ("The current chapter content:", chapter_content),
+                ("The book takes place in the following world:", world_theme),
+                ("The characters include:", characters),
+                ("The Story Synopsis is:", self.synopsis),
+            ],
+        )
+
+    def generate_chat_response_editor_stream(
+        self,
+        chat_history,
+        chapter_outline,
+        chapter_content,
+        world_theme,
+        characters,
+        user_message,
+    ):
+        """Generate a streaming brainstorming response about improving a chapter."""
+        messages = [{"role": "system", "content": self.system_prompts["editor_chat"]}]
+
+        self._add_chapter_editing_context(
+            messages, chapter_outline, chapter_content, world_theme, characters
+        )
+
+        # Add conversation history
+        for entry in chat_history:
+            role = "user" if entry["role"] == "user" else "assistant"
+            messages.append({"role": role, "content": entry["content"]})
+
+        # Add the latest user message
+        messages.append({"role": "user", "content": user_message})
+
+        self._save_debug_messages(messages, "editor_chat", "chat_stream_request")
+
+        stream = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            **self._sampling_kwargs(),
+            stream=True,
+        )
+
+        if not self.debug:
+            return stream
+
+        return self._create_debug_stream_wrapper(
+            stream, "editor_chat", "chat_stream_response"
+        )
+
+    def generate_final_edits_stream(
+        self,
+        chat_history,
+        chapter_outline,
+        chapter_content,
+        world_theme,
+        characters,
+    ):
+        """Generate the final numbered change list from the brainstorming chat."""
+        messages = [
+            {
+                "role": "system",
+                "content": self.system_prompts["chapter_edits_finalizer"],
+            }
+        ]
+
+        self._add_chapter_editing_context(
+            messages, chapter_outline, chapter_content, world_theme, characters
+        )
+
+        # Add conversation history
+        for entry in chat_history:
+            role = "user" if entry["role"] == "user" else "assistant"
+            messages.append({"role": role, "content": entry["content"]})
+
+        # Add the final instruction to produce the change list
+        messages.append(
+            {
+                "role": "user",
+                "content": "Based on our conversation, produce the final numbered list of required changes for this chapter's editing pass. This list will be handed to the editor as its complete set of instructions, so include everything that must change and nothing that is merely nice to have. Output only the numbered list.",
+            }
+        )
+
+        self._save_debug_messages(
+            messages, "chapter_edits_finalizer", "final_edits_stream_request"
+        )
+
+        stream = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            **self._sampling_kwargs(),
+            stream=True,
+        )
+
+        if not self.debug:
+            return stream
+
+        return self._create_debug_stream_wrapper(
+            stream, "chapter_edits_finalizer", "final_edits_stream_response"
         )

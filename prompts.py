@@ -100,17 +100,23 @@ Based on the following:
 
 ---
 
-Provide a comprehensive edit that:
-1. Improves prose quality and flow
-2. Ensures character consistency
-3. Ensures consistency with the outlined plot points
-4. Enhances descriptive elements
-5. Strengthens dialogue and character interactions
-6. Maintains continuity with established world and plot
-7. Fixes any grammatical or structural issues
-8. Ensures the chapter covers its story beats naturally and completely without padding or filler
+**Required changes:**
+{required_changes}
 
-Return the complete edited chapter.
+---
+
+Provide a comprehensive edit that:
+1. Applies every required change listed above
+2. Improves prose quality and flow
+3. Ensures character consistency
+4. Ensures consistency with the outlined plot points
+5. Enhances descriptive elements
+6. Strengthens dialogue and character interactions
+7. Maintains continuity with established world and plot
+8. Fixes any grammatical or structural issues
+9. Ensures the chapter covers its story beats naturally and completely without padding or filler
+
+Return the complete edited chapter, and nothing else.
 """
 
 # Inline continue prompt

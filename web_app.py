@@ -254,6 +254,20 @@ def get_master_prompt():
     return ""
 
 
+def chapter_edits_path(chapter_number):
+    """Path of the required-changes list for a chapter."""
+    return os.path.join(CHAPTERS_DIR, f"chapter_{chapter_number}_edits{TEXT_EXTENSION}")
+
+
+def get_chapter_edits(chapter_number):
+    """Get the saved required-changes list for a chapter."""
+    path = chapter_edits_path(chapter_number)
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    return ""
+
+
 def get_settings():
     """Get settings from file."""
     if os.path.exists(SETTINGS_FILE):
@@ -340,6 +354,35 @@ def _close_stream(stream):
             close()
     except Exception:
         pass
+
+
+def _sse_response(stream):
+    """Wrap an LLM stream as a server-sent events response."""
+
+    def generate():
+        try:
+            # Send a heartbeat to establish the connection
+            yield 'data: {"content": ""}\n\n'
+
+            for chunk in stream:
+                if (
+                    chunk.choices
+                    and len(chunk.choices) > 0
+                    and chunk.choices[0].delta
+                    and chunk.choices[0].delta.content is not None
+                ):
+                    yield f"data: {json.dumps({'content': chunk.choices[0].delta.content})}\n\n"
+
+            # Send completion marker
+            yield f"data: {json.dumps({'content': '[DONE]'})}\n\n"
+        finally:
+            _close_stream(stream)
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.route("/synopsis_chat_stream", methods=["POST"])
@@ -1051,8 +1094,6 @@ def _handle_chapter_stream(chapter_number, agent_name):
     # Parse incoming JSON data from the request
     data = request.json
 
-    # Get any additional context from the chat interface
-    additional_context = data.get("additional_context", "")
     master_prompt = data.get("master_prompt", "")
     default_pov, default_tense = _get_chapter_style(get_settings(), chapter_number)
     point_of_view = data.get("point_of_view", default_pov)
@@ -1081,12 +1122,15 @@ def _handle_chapter_stream(chapter_number, agent_name):
     book_agents = BookAgents(agent_config, get_synopsis())
     book_agents.create_agents(world_theme, len(chapters))
 
-    # Combine the base chapter prompt with any additional context from the chat
-    chapter_prompt = (
-        f"{chapter_data['prompt']}\n\n{additional_context}"
-        if additional_context
-        else chapter_data["prompt"]
-    )
+    # The editing pass works from the saved required-changes list. The chat is
+    # only for brainstorming that list, so no chat messages are injected here.
+    if agent_name == "editor":
+        required_changes = get_chapter_edits(chapter_number) or (
+            "(No required changes have been listed for this chapter. "
+            "Review and improve it for overall quality.)"
+        )
+    else:
+        required_changes = ""
 
     # Select the appropriate prompt template based on the agent
     prompt_template = (
@@ -1100,7 +1144,7 @@ def _handle_chapter_stream(chapter_number, agent_name):
         master_prompt=master_prompt,
         chapter_number=chapter_number,
         chapter_title=chapter_data["title"],
-        chapter_outline=chapter_prompt,
+        chapter_outline=chapter_data["prompt"],
         world_theme=world_theme,
         relevant_characters=characters,  # You might want to filter for relevant characters only
         scene_details=get_scenes_details(chapter_number),
@@ -1108,6 +1152,7 @@ def _handle_chapter_stream(chapter_number, agent_name):
         point_of_view=point_of_view,
         tense=tense,
         chapter_content=chapter_content,  # Included for editor
+        required_changes=required_changes,  # Included for editor
     )
 
     # If requested, return the full prompt for debugging instead of generating
@@ -1224,6 +1269,10 @@ def chapter_editor(chapter_number):
             chapter_content = f.read()
         has_review = True
 
+    # Get the saved required-changes list if it exists
+    chapter_edits = get_chapter_edits(chapter_number)
+    has_edits = os.path.exists(chapter_edits_path(chapter_number))
+
     master_prompt = get_master_prompt()
     settings = get_settings()
 
@@ -1254,6 +1303,8 @@ def chapter_editor(chapter_number):
         chapters_paginated=chapters_paginated,
         original_chapter_content=original_chapter_content,
         chapter_content=chapter_content,
+        chapter_edits=chapter_edits,
+        has_edits=has_edits,
         has_review=has_review,
         master_prompt=master_prompt,
         point_of_view=point_of_view,
@@ -1267,6 +1318,88 @@ def chapter_editor(chapter_number):
 def chapter_editor_stream(chapter_number):
     """Generate or display a specific chapter using the editor agent."""
     return _handle_chapter_stream(chapter_number, "editor")
+
+
+def _chapter_editing_context(chapter_number):
+    """Load a chapter plus the book context used by the editing chat.
+
+    Returns (chapters, chapter_data, world_theme, characters); chapter_data is
+    None when the chapter does not exist.
+    """
+    chapters = get_chapters()
+    chapter_data = next(
+        (ch for ch in chapters if ch["chapter_number"] == chapter_number), None
+    )
+    return chapters, chapter_data, get_world_theme(), get_characters()
+
+
+def _chapter_not_found_response(chapter_number):
+    return Response(
+        json.dumps({"error": f"Chapter {chapter_number} not found"}),
+        status=404,
+        mimetype="application/json",
+    )
+
+
+@app.route("/chapter_edits_chat_stream/<int:chapter_number>", methods=["POST"])
+def chapter_edits_chat_stream(chapter_number):
+    """Brainstorm improvements for a chapter in a streaming chat."""
+    chapters, chapter_data, world_theme, characters = _chapter_editing_context(
+        chapter_number
+    )
+    if chapter_data is None:
+        return _chapter_not_found_response(chapter_number)
+
+    data = request.json or {}
+    chat_history = data.get("chat_history", [])
+    user_message = data.get("message", "")
+    chapter_content = data.get("chapter_content", "")
+
+    book_agents = BookAgents(agent_config, get_synopsis())
+    book_agents.create_agents(world_theme, len(chapters))
+
+    stream = book_agents.generate_chat_response_editor_stream(
+        chat_history,
+        chapter_data["prompt"],
+        chapter_content,
+        world_theme,
+        characters,
+        user_message,
+    )
+    return _sse_response(stream)
+
+
+@app.route("/finalize_chapter_edits_stream/<int:chapter_number>", methods=["POST"])
+def finalize_chapter_edits_stream(chapter_number):
+    """Turn the editing brainstorm chat into a final list of required changes."""
+    chapters, chapter_data, world_theme, characters = _chapter_editing_context(
+        chapter_number
+    )
+    if chapter_data is None:
+        return _chapter_not_found_response(chapter_number)
+
+    data = request.json or {}
+    chat_history = data.get("chat_history", [])
+    if not chat_history:
+        return jsonify(
+            {
+                "error": "Chat history is empty. Please chat with the AI first to brainstorm changes."
+            }
+        ), 400
+
+    chapter_content = data.get("chapter_content", "")
+
+    book_agents = BookAgents(agent_config, get_synopsis())
+    book_agents.create_agents(world_theme, len(chapters))
+
+    stream = book_agents.generate_final_edits_stream(
+        chat_history,
+        chapter_data["prompt"],
+        chapter_content,
+        world_theme,
+        characters,
+    )
+    return _sse_response(stream)
 
 
 @app.route("/inline_llm_continue_stream", methods=["POST"])
@@ -1417,6 +1550,27 @@ def save_chapter_editor(chapter_number):
     )
     with open(chapter_path, "w") as f:
         f.write(chapter_content)
+
+    return jsonify({"success": True})
+
+
+@app.route("/save_chapter_edits/<int:chapter_number>", methods=["POST"])
+def save_chapter_edits(chapter_number):
+    """Save the edited required-changes list for a chapter."""
+    chapter_edits = (request.form.get("chapter_edits") or "").strip()
+
+    with open(chapter_edits_path(chapter_number), "w", encoding="utf-8") as f:
+        f.write(chapter_edits)
+
+    return jsonify({"success": True})
+
+
+@app.route("/delete_chapter_edits/<int:chapter_number>", methods=["POST"])
+def delete_chapter_edits(chapter_number):
+    """Delete the saved required-changes list so it can be regenerated."""
+    path = chapter_edits_path(chapter_number)
+    if os.path.exists(path):
+        os.remove(path)
 
     return jsonify({"success": True})
 

@@ -5,6 +5,8 @@
 
 {% block navbar_title %}Review Chapter {{ chapter.chapter_number }}: {{ chapter.title }}{% endblock %}
 
+{% set chat_seed = 'Use this chat to brainstorm improvements for this chapter and to ask for specific feedback. For example, "Does the opening drag?", or "Shorten the dialogue in the second half." When you are ready, generate the final list of required changes below.' %}
+
 {% block content %}
 <div class="row">
     <div class="col-12 mb-4">
@@ -94,21 +96,34 @@
                         <div id="chatMessages">
                             <div class="mb-3">
                                 <div class="d-inline-block bg-body-tertiary p-2 rounded-3" style="max-width: 80%">
-                                    <p class="mb-0">Use this chat to provide specific editing instructions. For example, "Make the opening more dramatic," or "Shorten the dialogue in the second half."</p>
+                                    <p class="mb-0">{{ chat_seed }}</p>
                                 </div>
                             </div>
                         </div>
 
                         <div class="chat-composer">
+                            <div id="chatTypingIndicator" class="alert alert-info p-2 mb-2 d-none">
+                                <div class="d-flex align-items-center">
+                                    <div class="spinner-border spinner-border-sm me-2" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                    <div>AI is thinking...</div>
+                                    <button type="button" class="btn btn-outline-danger btn-sm ms-auto" id="chatStopStreamBtn"><i class="bi bi-stop-fill me-1"></i>Stop</button>
+                                </div>
+                            </div>
                             <div class="d-flex align-items-end">
-                                <textarea id="userMessage" class="form-control me-2" rows="3" placeholder="Type your ideas or editing instructions for this chapter..."></textarea>
+                                <textarea id="userMessage" class="form-control me-2" rows="3" placeholder="Type your ideas or questions about this chapter..."></textarea>
                                 <button id="sendMessageBtn" class="btn btn-primary" disabled>Send</button>
                             </div>
 
+                            <div class="mt-3 d-flex flex-wrap gap-2">
+                                <button type="button" class="btn btn-success" id="generateEditsBtn" disabled>Generate Change List</button>
+                                <button type="button" class="btn btn-outline-success" id="useEditsBtn" disabled><i class="bi bi-arrow-down-circle me-1"></i>Use in Editor</button>
+                                <button id="clearChatBtn" class="btn btn-outline-secondary" disabled><i class="bi bi-trash me-1"></i>Clear Chat</button>
+                            </div>
                             <div class="mt-3 d-flex">
                                 <button type="button" class="btn btn-warning me-2" id="executeChapterReviewBtn">Execute Chapter Review</button>
                                 <button type="button" class="btn btn-info" id="showPromptBtn">Show Execute Chapter Review Prompt</button>
-                                <button id="clearChatBtn" class="btn btn-outline-secondary ms-2" disabled><i class="bi bi-trash me-1"></i>Clear Chat</button>
                             </div>
                             <div class="mt-2">
                                 <span class="small text-muted me-2">Send to AI:</span>
@@ -148,6 +163,29 @@
                         </div>
                         <div>Editing chapter content... This may take several minutes.</div>
                         <button type="button" class="btn btn-outline-danger btn-sm ms-auto" id="stopStreamBtn"><i class="bi bi-stop-fill me-1"></i>Stop</button>
+                    </div>
+                </div>
+
+                <div id="chapterEditsContainer" class="mt-4 mb-4">
+                    <label class="form-label h5 mb-1">Required Changes</label>
+                    <p class="text-muted small">The editing pass applies this list to the chapter. Generate it from the chat above or write it by hand, then edit it here as needed.</p>
+                    <form id="saveChapterEditsForm" action="/save_chapter_edits/{{ chapter.chapter_number }}" method="post">
+                        {{ quill_editor('chapterEditsEditor', 'chapter_edits', chapter_edits, chapter_outline=chapter.prompt) }}
+                        <div class="d-flex gap-2 mt-2">
+                            <button type="submit" class="btn btn-success" id="saveEditsBtn">Save Changes</button>
+                            <button type="button" class="btn btn-outline-danger" id="deleteEditsBtn"{% if not has_edits %} disabled{% endif %}><i class="bi bi-trash3 me-1"></i>Delete</button>
+                        </div>
+                    </form>
+                    <div id="editsSavingIndicator" class="alert alert-info mt-3 d-none">
+                        <div class="d-flex align-items-center">
+                            <div class="spinner-border spinner-border-sm me-2" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <div>Saving required changes...</div>
+                        </div>
+                    </div>
+                    <div id="editsSavedIndicator" class="alert alert-success mt-3 d-none">
+                        <div>Required changes saved successfully!</div>
                     </div>
                 </div>
 
@@ -272,12 +310,15 @@ $(document).ready(function() {
     // Chat history (persisted in localStorage)
     const CHAT_KEY = 'opentale_chat_chapter_editor_{{ chapter.chapter_number }}';
     let chatHistory = loadChatHistory(CHAT_KEY) || [];
-    let chatReplyTimer = null;
+    let lastEditsText = null;
     const chatButtons = {
+        finalizeBtn: '#generateEditsBtn',
         sendBtn: '#sendMessageBtn',
         messageInput: '#userMessage',
         clearBtn: '#clearChatBtn'
     };
+
+    const CHAT_SEED_MESSAGE = {{ chat_seed | tojson }};
 
     // Restore previous chat messages
     if (chatHistory.length > 0) {
@@ -304,7 +345,11 @@ $(document).ready(function() {
         getHistory: function() { return chatHistory; },
         setHistory: function(history) { chatHistory = history; },
         renderChat: renderChat,
-        resubmit: queueCannedReply
+        resubmit: streamAiResponse
+    });
+
+    $('#chatStopStreamBtn').click(function() {
+        cancelActiveStream();
     });
 
     // Clear chat
@@ -312,9 +357,12 @@ $(document).ready(function() {
         confirmClearChat(function() {
             chatEditing.cancel();
             chatHistory = [];
+            lastEditsText = null;
+            $('#useEditsBtn').prop('disabled', true);
             clearChatHistory(CHAT_KEY);
             $('#chatMessages').empty();
-            $('#chatMessages').html('<div class="mb-3"><div class="d-inline-block bg-body-tertiary p-2 rounded-3" style="max-width: 80%"><p class="mb-0">Use this chat to provide specific editing instructions. For example, "Make the opening more dramatic," or "Shorten the dialogue in the second half."</p></div></div>');
+            $('#chatMessages').html('<div class="mb-3"><div class="d-inline-block bg-body-tertiary p-2 rounded-3" style="max-width: 80%"><p class="mb-0">' + CHAT_SEED_MESSAGE + '</p></div></div>');
+            $('#chatTypingIndicator').addClass('d-none');
             updateChatButtonStates(chatHistory, chatButtons);
         });
     });
@@ -342,9 +390,9 @@ $(document).ready(function() {
         if (!message) return;
 
         if (chatEditing.active()) {
-            clearTimeout(chatReplyTimer);
-            chatEditing.setBusy(false);
             chatEditing.submit(message);
+            saveChatHistory(CHAT_KEY, chatHistory);
+            updateChatButtonStates(chatHistory, chatButtons);
             return;
         }
 
@@ -362,51 +410,227 @@ $(document).ready(function() {
         saveChatHistory(CHAT_KEY, chatHistory);
         updateChatButtonStates(chatHistory, chatButtons);
 
-        queueCannedReply();
+        streamAiResponse(message);
     }
 
-    // For simplicity, we'll provide a standard response about using the input for chapter editing
-    function queueCannedReply() {
-        chatEditing.setBusy(true);
-        chatReplyTimer = setTimeout(function() {
-            chatEditing.setBusy(false);
-            const response = "Thanks for the feedback! I'll use this when you apply edits. Feel free to add more instructions.";
-            addMessageToChat('ai', response);
-            // Add to chat history
-            chatHistory.push({role: 'ai', content: response});
-            saveChatHistory(CHAT_KEY, chatHistory);
-        }, 500);
+    // The chapter content chosen by the WIP/Current radios, used as chat context.
+    function selectedChapterContent() {
+        const useWip = $('input[name="contextSource"]:checked').val() === 'wip';
+        return (useWip ? $('#chapterContentEditor-hidden').val() : '')
+            || $('#originalChapterContentEditor-hidden').val();
     }
+
+    function streamAiResponse(message) {
+        $('#chatTypingIndicator').removeClass('d-none');
+        chatEditing.setBusy(true);
+
+        const messageDiv = $('<div>').addClass('mb-3 text-start');
+        const messageBubble = $('<div>')
+            .addClass('d-inline-block bg-body-tertiary p-2 rounded-3')
+            .css('max-width', '80%')
+            .html('<span class="typing-cursor">▌</span>');
+        messageDiv.append(messageBubble);
+        $('#chatMessages').append(messageDiv);
+        scrollChatToBottom();
+
+        let responseContent = '';
+
+        fetch('/chapter_edits_chat_stream/{{ chapter.chapter_number }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            signal: getStreamSignal(),
+            body: JSON.stringify({
+                message: message,
+                chat_history: chatHistory.slice(0, -1), // Exclude current message
+                chapter_content: selectedChapterContent()
+            })
+        }).then(response => {
+            if (!response.ok) {
+                throw new Error('Chat request failed with status ' + response.status);
+            }
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            function readStream() {
+                return reader.read().then(({ value, done }) => {
+                    if (done) {
+                        clearActiveStream();
+                        $('#chatTypingIndicator').addClass('d-none');
+                        chatEditing.setBusy(false);
+                        chatHistory.push({role: 'ai', content: responseContent});
+                        saveChatHistory(CHAT_KEY, chatHistory);
+                        messageBubble.find('.typing-cursor').remove();
+                        return;
+                    }
+
+                    const chunk = decoder.decode(value);
+
+                    chunk.split('\n\n').forEach(event => {
+                        if (event.startsWith('data: ')) {
+                            try {
+                                const jsonData = event.substring(6); // Remove 'data: ' prefix
+                                const data = JSON.parse(jsonData);
+
+                                if (data.content === '[DONE]') {
+                                    return;
+                                }
+
+                                responseContent += data.content;
+                                messageBubble.html(formatMessage(responseContent) + '<span class="typing-cursor">▌</span>');
+                            } catch (e) {
+                                console.error('Error parsing JSON:', e, jsonData);
+                            }
+                        }
+                    });
+
+                    return readStream();
+                });
+            }
+            return readStream();
+        }).catch(error => {
+            clearActiveStream();
+            if (error.name === 'AbortError') {
+                $('#chatTypingIndicator').addClass('d-none');
+                chatEditing.setBusy(false);
+                messageDiv.remove();
+                return;
+            }
+            console.error('Fetch error:', error);
+            $('#chatTypingIndicator').addClass('d-none');
+            chatEditing.setBusy(false);
+            messageDiv.remove();
+            addMessageToChat('system', 'Error streaming response. Please try again.');
+        });
+    }
+
+    // Generate the final change list from the chat, streaming into a chat bubble.
+    $('#generateEditsBtn').click(function() {
+        chatEditing.cancel();
+        $('#chatTypingIndicator').removeClass('d-none');
+        $(this).prop('disabled', true);
+
+        const draftDiv = $('<div>').addClass('mb-3 text-start');
+        const draftBubble = $('<div>')
+            .addClass('d-inline-block bg-body-tertiary p-2 rounded-3')
+            .css('max-width', '80%')
+            .html('<span class="typing-cursor">▌</span>');
+        draftDiv.append(draftBubble);
+        $('#chatMessages').append(draftDiv);
+        scrollChatToBottom();
+
+        let draftText = '';
+
+        fetch('/finalize_chapter_edits_stream/{{ chapter.chapter_number }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            signal: getStreamSignal(),
+            body: JSON.stringify({
+                chat_history: chatHistory,
+                chapter_content: selectedChapterContent()
+            })
+        }).then(response => {
+            if (!response.ok) {
+                throw new Error('Change list request failed with status ' + response.status);
+            }
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            function readStream() {
+                return reader.read().then(({ value, done }) => {
+                    if (done) {
+                        clearActiveStream();
+                        $('#chatTypingIndicator').addClass('d-none');
+                        $('#generateEditsBtn').prop('disabled', false);
+                        draftBubble.find('.typing-cursor').remove();
+                        if (draftText) {
+                            lastEditsText = draftText;
+                            chatHistory.push({role: 'ai', content: draftText});
+                            saveChatHistory(CHAT_KEY, chatHistory);
+                            $('#useEditsBtn').prop('disabled', false);
+                        }
+                        return;
+                    }
+
+                    const chunk = decoder.decode(value);
+
+                    chunk.split('\n\n').forEach(event => {
+                        if (event.startsWith('data: ')) {
+                            try {
+                                const jsonData = event.substring(6); // Remove 'data: ' prefix
+                                const data = JSON.parse(jsonData);
+
+                                if (data.content === '[DONE]') {
+                                    return;
+                                }
+
+                                draftText += data.content;
+                                draftBubble.html(formatMessage(draftText) + '<span class="typing-cursor">▌</span>');
+                            } catch (e) {
+                                console.error('Error parsing JSON:', e, jsonData);
+                            }
+                        }
+                    });
+
+                    return readStream();
+                });
+            }
+            return readStream();
+        }).catch(error => {
+            clearActiveStream();
+            if (error.name === 'AbortError') {
+                $('#chatTypingIndicator').addClass('d-none');
+                $('#generateEditsBtn').prop('disabled', false);
+                draftDiv.remove();
+                return;
+            }
+            console.error('Fetch error for change list:', error);
+            $('#chatTypingIndicator').addClass('d-none');
+            $('#generateEditsBtn').prop('disabled', false);
+            draftDiv.remove();
+            addMessageToChat('system', 'Error generating the change list. Please try again.');
+        });
+    });
+
+    // Save the generated change list and load it into the editor above.
+    $('#useEditsBtn').click(function() {
+        if (!lastEditsText) return;
+        const btn = $(this);
+        btn.prop('disabled', true);
+        $.post('/save_chapter_edits/{{ chapter.chapter_number }}', { chapter_edits: lastEditsText })
+            .done(function() {
+                const editorElement = document.getElementById('chapterEditsEditor');
+                if (editorElement && editorElement.quillHandler) {
+                    editorElement.quillHandler.updateEditorWithMarkdown(lastEditsText);
+                }
+                $('#deleteEditsBtn').prop('disabled', false);
+            })
+            .fail(function() {
+                alert('Error saving the change list. Please try again.');
+                btn.prop('disabled', false);
+            });
+    });
 
     // Edit chapter
     $('#executeChapterReviewBtn').click(function() {
         chatEditing.cancel();
-        clearTimeout(chatReplyTimer);
         chatEditing.setBusy(false);
+        $('#chatTypingIndicator').addClass('d-none');
         $('#generatingIndicator').removeClass('d-none');
         $(this).prop('disabled', true);
-
-        // Get any additional context from chat
-        const additionalContext = chatHistory.length > 0
-            ? "\n\nAdditional user requirements:\n" +
-              chatHistory.filter(msg => msg.role === 'user')
-                        .map(msg => "- " + msg.content)
-                        .join("\n")
-            : "";
 
         const masterPrompt = $('#masterPrompt').val();
         const pointOfView = $('#pointOfView').val();
         const tense = $('#tense').val();
-        const useWip = $('input[name="contextSource"]:checked').val() === 'wip';
-        const chapterContent = (useWip ? $('#chapterContentEditor-hidden').val() : '')
-            || $('#originalChapterContentEditor-hidden').val(); // Fall back to the canonical chapter
 
         const requestData = {
-            additional_context: additionalContext,
             master_prompt: masterPrompt,
             point_of_view: pointOfView,
             tense: tense,
-            chapter_content: chapterContent // This is the context the AI edits
+            chapter_content: selectedChapterContent() // This is the context the AI edits
         };
 
         let fullContent = '';
@@ -613,6 +837,55 @@ $(document).ready(function() {
         });
     });
 
+    // Save the required-changes list
+    $('#saveChapterEditsForm').submit(function(e) {
+        e.preventDefault();
+        $('#editsSavingIndicator').removeClass('d-none');
+        $('#editsSavedIndicator').addClass('d-none');
+        $('#saveEditsBtn').prop('disabled', true);
+
+        $.ajax({
+            type: 'POST',
+            url: '/save_chapter_edits/{{ chapter.chapter_number }}',
+            data: $(this).serialize(),
+            success: function() {
+                $('#editsSavingIndicator').addClass('d-none');
+                $('#editsSavedIndicator').removeClass('d-none');
+                $('#saveEditsBtn').prop('disabled', false);
+                $('#deleteEditsBtn').prop('disabled', false);
+                setTimeout(function() {
+                    $('#editsSavedIndicator').addClass('d-none');
+                }, 3000);
+            },
+            error: function() {
+                alert('Error saving required changes. Please try again.');
+                $('#editsSavingIndicator').addClass('d-none');
+                $('#saveEditsBtn').prop('disabled', false);
+            }
+        });
+    });
+
+    // Delete the required-changes list
+    $('#deleteEditsBtn').click(function() {
+        confirmAction({
+            title: 'Delete Required Changes',
+            message: 'Delete the required-changes list for this chapter? The editing pass will fall back to a general review. This cannot be undone.',
+            confirmText: 'Delete'
+        }, function() {
+            $.post('/delete_chapter_edits/{{ chapter.chapter_number }}')
+                .done(function() {
+                    const el = document.getElementById('chapterEditsEditor');
+                    if (el && el.quill) {
+                        el.quill.setText('');
+                    }
+                    $('#deleteEditsBtn').prop('disabled', true);
+                })
+                .fail(function() {
+                    alert('Error deleting the required-changes list. Please try again.');
+                });
+        });
+    });
+
     // Debounce function
     function debounce(func, wait) {
         let timeout;
@@ -672,26 +945,11 @@ $(document).ready(function() {
 
     // Show prompt
     $('#showPromptBtn').click(function() {
-        const additionalContext = chatHistory.length > 0
-            ? "\n\nAdditional user requirements:\n" +
-              chatHistory.filter(msg => msg.role === 'user')
-                        .map(msg => "- " + msg.content)
-                        .join("\n")
-            : "";
-        
-        const masterPrompt = $('#masterPrompt').val();
-        const pointOfView = $('#pointOfView').val();
-        const tense = $('#tense').val();
-        const useWip = $('input[name="contextSource"]:checked').val() === 'wip';
-        const chapterContent = (useWip ? $('#chapterContentEditor-hidden').val() : '')
-            || $('#originalChapterContentEditor-hidden').val(); // Fall back to the canonical chapter
-
         const requestData = {
-            additional_context: additionalContext,
-            master_prompt: masterPrompt,
-            point_of_view: pointOfView,
-            tense: tense,
-            chapter_content: chapterContent,
+            master_prompt: $('#masterPrompt').val(),
+            point_of_view: $('#pointOfView').val(),
+            tense: $('#tense').val(),
+            chapter_content: selectedChapterContent(),
             show_prompt: true
         };
 
@@ -731,6 +989,12 @@ document.addEventListener('save-content', function(e) {
     // Determine which editor is active and trigger its save button
     const activeElement = document.activeElement;
     const chapterEditor = document.getElementById('chapterContentEditor');
+    const editsEditor = document.getElementById('chapterEditsEditor');
+
+    if (editsEditor && editsEditor.contains(activeElement)) {
+        $('#saveEditsBtn').click();
+        return;
+    }
 
     if (chapterEditor && chapterEditor.contains(activeElement)) {
         $('#saveChapterBtn').click();
