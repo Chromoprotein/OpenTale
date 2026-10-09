@@ -7,6 +7,7 @@ import math
 import os
 import re
 import shutil
+from datetime import datetime
 
 from flask import (
     Flask,
@@ -35,6 +36,8 @@ BOOK_OUTPUT_DIR = "book_output"
 TEXT_EXTENSION = ".txt"
 WORLD_FILE = os.path.join(BOOK_OUTPUT_DIR, f"world{TEXT_EXTENSION}")
 CHARACTERS_FILE = os.path.join(BOOK_OUTPUT_DIR, f"characters{TEXT_EXTENSION}")
+WORLD_JSON_FILE = os.path.join(BOOK_OUTPUT_DIR, "world.json")
+CHARACTERS_JSON_FILE = os.path.join(BOOK_OUTPUT_DIR, "characters.json")
 SYNOPSIS_FILE = os.path.join(BOOK_OUTPUT_DIR, f"synopsis{TEXT_EXTENSION}")
 OUTLINE_FILE = os.path.join(BOOK_OUTPUT_DIR, f"outline{TEXT_EXTENSION}")
 CHAPTERS_JSON_FILE = os.path.join(BOOK_OUTPUT_DIR, "chapters.json")
@@ -55,19 +58,22 @@ agent_config = get_config()
 
 # Helper functions to read data from files
 def get_world_theme():
-    """Get world theme from file."""
-    if os.path.exists(WORLD_FILE):
-        with open(WORLD_FILE, "r") as f:
-            return f.read().strip()
-    return ""
+    """Get the world setting as readable text.
+
+    Structured data is stored in ``world.json``; legacy ``world.txt`` files are
+    migrated on read. The text form is returned for templates and prompts that
+    still expect a string.
+    """
+    return world_to_text(load_world())
 
 
 def get_characters():
-    """Get characters from file."""
-    if os.path.exists(CHARACTERS_FILE):
-        with open(CHARACTERS_FILE, "r") as f:
-            return f.read().strip()
-    return ""
+    """Get character profiles as readable text.
+
+    Structured data is stored in ``characters.json``; legacy ``characters.txt``
+    files are migrated on read.
+    """
+    return characters_to_text(load_characters())
 
 
 def get_outline():
@@ -171,11 +177,14 @@ def inject_chapters_enabled():
     def has_content(path):
         return os.path.exists(path) and os.path.getsize(path) > 0
 
+    def has_any(*paths):
+        return any(has_content(path) for path in paths)
+
     return {
         "chapters_enabled": (
             has_content(SYNOPSIS_FILE)
-            and has_content(WORLD_FILE)
-            and has_content(CHARACTERS_FILE)
+            and has_any(WORLD_JSON_FILE, WORLD_FILE)
+            and has_any(CHARACTERS_JSON_FILE, CHARACTERS_FILE)
             and (has_content(OUTLINE_JSON_FILE) or has_content(OUTLINE_FILE))
         ),
     }
@@ -533,6 +542,7 @@ def world():
     return render_template(
         "world.html",
         world_theme=world_theme,
+        world=load_world(),
         characters=get_characters(),
         synopsis=synopsis,
         topic=settings.get("topic", ""),
@@ -642,8 +652,7 @@ def finalize_world():
     world_theme = world_theme.strip()
     world_theme = re.sub(r"\n+", "\n", world_theme.strip())
 
-    with open(WORLD_FILE, "w") as f:
-        f.write(world_theme)
+    save_world_text(world_theme)
 
     return jsonify({"world_theme": world_theme})
 
@@ -706,9 +715,7 @@ def save_world():
     """Save edited world theme"""
     world_theme = request.form.get("world_theme")
 
-    # Save to file
-    with open(WORLD_FILE, "w") as f:
-        f.write(world_theme)
+    save_world_text(world_theme)
 
     return jsonify({"success": True})
 
@@ -718,6 +725,8 @@ def delete_world():
     """Delete the saved world setting so it can be recreated."""
     if os.path.exists(WORLD_FILE):
         os.remove(WORLD_FILE)
+    if os.path.exists(WORLD_JSON_FILE):
+        os.remove(WORLD_JSON_FILE)
 
     return jsonify({"success": True})
 
@@ -746,6 +755,7 @@ def characters():
     return render_template(
         "characters.html",
         characters=characters_content,
+        characters_data=load_characters(),
         world_theme=world_theme,
         synopsis=synopsis,
         num_characters=num_characters,
@@ -758,9 +768,7 @@ def save_characters():
     """Save edited characters"""
     characters_content = request.form.get("characters")
 
-    # Save to file
-    with open(CHARACTERS_FILE, "w") as f:
-        f.write(characters_content)
+    save_characters_text(characters_content)
 
     return jsonify({"success": True})
 
@@ -770,8 +778,53 @@ def delete_characters():
     """Delete the saved characters so they can be recreated."""
     if os.path.exists(CHARACTERS_FILE):
         os.remove(CHARACTERS_FILE)
+    if os.path.exists(CHARACTERS_JSON_FILE):
+        os.remove(CHARACTERS_JSON_FILE)
 
     return jsonify({"success": True})
+
+
+@app.route("/api/world", methods=["GET", "PUT"])
+def api_world():
+    """Read or replace the structured world setting."""
+    if request.method == "GET":
+        return jsonify({"success": True, "world": load_world()})
+
+    data = request.get_json(silent=True) or {}
+    world = data.get("world", data)
+    try:
+        saved = save_world_json(world)
+    except (ValueError, TypeError) as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
+    # Keep the legacy text mirror in sync for anything still reading it.
+    with open(WORLD_FILE, "w", encoding="utf-8") as f:
+        f.write(world_to_text(saved))
+
+    return jsonify({"success": True, "world": saved})
+
+
+@app.route("/api/characters", methods=["GET", "PUT"])
+def api_characters():
+    """Read or replace the structured character data."""
+    if request.method == "GET":
+        return jsonify({"success": True, "characters": load_characters()})
+
+    data = request.get_json(silent=True) or {}
+    characters = data.get("characters", data)
+    if isinstance(characters, dict):
+        payload = characters
+    else:
+        payload = {"characters": characters}
+    try:
+        saved = save_characters_json(payload)
+    except (ValueError, TypeError) as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
+    with open(CHARACTERS_FILE, "w", encoding="utf-8") as f:
+        f.write(characters_to_text(saved))
+
+    return jsonify({"success": True, "characters": saved})
 
 
 @app.route("/outline", methods=["GET", "POST"])
@@ -781,20 +834,17 @@ def outline():
         flash("You need to create a synopsis first.", "warning")
         return redirect("/synopsis")
 
-    if not os.path.exists(WORLD_FILE):
+    if not get_world_theme():
         flash("You need a world setting before the outline.", "warning")
         return redirect("/world")
 
-    if not os.path.exists(CHARACTERS_FILE):
+    if not get_characters():
         flash("You need characters before the outline.", "warning")
         return redirect("/characters")
 
     # Get world theme and characters
-    with open(WORLD_FILE, "r") as f:
-        world_theme = f.read()
-
-    with open(CHARACTERS_FILE, "r") as f:
-        characters = f.read()
+    world_theme = get_world_theme()
+    characters = get_characters()
 
     with open(SYNOPSIS_FILE, "r") as f:
         synopsis = f.read()
@@ -2336,6 +2386,609 @@ def api_chapter(chapter_number):
         )
 
     return jsonify(chapter_data)
+
+
+def _now_iso():
+    from datetime import timezone
+
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def parse_characters_text_to_json(text):
+    """Parse character profiles text into structured JSON.
+
+    Expects format like:
+    CHARACTER_PROFILES:
+    [CHARACTER NAME]:
+    - Field: value
+    (or **NAME:** style)
+    """
+    if not text or not text.strip():
+        return {
+            "version": 1,
+            "generated_at": _now_iso(),
+            "characters": [],
+            "raw_text": "",
+        }
+
+    raw = text.strip()
+    characters = []
+    # Remove leading "CHARACTER_PROFILES:" header if present
+    content = raw
+    content = re.sub(
+        r"^\s*\*{0,2}CHARACTER[_\s]?PROFILES\*{0,2}:\s*\n?",
+        "",
+        content,
+        flags=re.IGNORECASE,
+    )
+
+    # Split by character headers: **NAME:** or NAME: at start of line (possibly with asterisks)
+    # Also handle [CHARACTER NAME] style in other parts? try to find blocks
+    # Primary: lines like **LEO:** or **TIA:**
+    char_pattern = re.compile(r"^\s*\*{0,2}([A-Z][A-Z0-9_]+)\*{0,2}:\s*", re.MULTILINE)
+    matches = list(char_pattern.finditer(content))
+    if matches:
+        for i, m in enumerate(matches):
+            name = m.group(1).strip()
+            start = m.end()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(content)
+            block = content[start:end].strip()
+            char = _extract_character_fields(name, block)
+            if char:
+                characters.append(char)
+        if characters:
+            return {
+                "version": 1,
+                "generated_at": _now_iso(),
+                "characters": characters,
+                "raw_text": raw,
+            }
+
+    # Fallback: split by blank lines followed by ALL CAPS name or title case
+    # try to be more lenient
+    alt_pattern = re.compile(r"^\s*\*{0,2}([^\n:]{2,40})\*{0,2}:\s*$", re.MULTILINE)
+    matches = list(alt_pattern.finditer(content))
+    # filter to likely names (not long descriptions)
+    filtered = []
+    for m in matches:
+        name = m.group(1).strip()
+        if len(name) < 50 and not re.search(
+            r"Field|Role|Age|Appearance|Personality", name, re.I
+        ):
+            filtered.append(m)
+    if filtered and len(filtered) >= 1:
+        for i, m in enumerate(filtered):
+            name = m.group(1).strip()
+            start = m.end()
+            end = filtered[i + 1].start() if i + 1 < len(filtered) else len(content)
+            block = content[start:end].strip()
+            char = _extract_character_fields(name, block)
+            if char:
+                characters.append(char)
+        if characters:
+            return {
+                "version": 1,
+                "generated_at": _now_iso(),
+                "characters": characters,
+                "raw_text": raw,
+            }
+
+    # If nothing parsed, store as single "unknown" character with full block as raw info?
+    # but better to return empty list with raw_text preserved
+    return {
+        "version": 1,
+        "generated_at": _now_iso(),
+        "characters": characters,
+        "raw_text": raw,
+    }
+
+
+def _extract_character_fields(name, block):
+    char = {
+        "id": f"char_{name.lower().replace(' ', '_').replace('-', '_')[:30]}",
+        "name": name,
+        "role": "",
+        "age_species": "",
+        "appearance": "",
+        "personality": "",
+        "goal_motivation": "",
+        "background": "",
+        "flaw": "",
+        "skills": "",
+        "relationships": "",
+        "arc": "",
+        "misc": "",
+        "notes": "",
+        "include_in_context": True,
+    }
+    # Map common field names
+    field_map = [
+        (r"role", "role"),
+        (r"age[\s/]*species|age|species", "age_species"),
+        (r"physical description|appearance", "appearance"),
+        (r"personality", "personality"),
+        (r"goals?/?motivations?|goal|motivation", "goal_motivation"),
+        (r"background", "background"),
+        (r"flaw", "flaw"),
+        (r"skills?", "skills"),
+        (r"relationships?", "relationships"),
+        (r"arc", "arc"),
+        (r"misc(?:ellaneous)?", "misc"),
+        (r"notes?", "notes"),
+    ]
+    # Try bullet format: - **Field:** value or - Field: value
+    # Split by lines starting with - or *
+    for line in block.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # remove leading bullets
+        line_clean = re.sub(r"^\s*[\-\*\+]\s*", "", line)
+        if ":" not in line_clean and not line_clean.startswith("**"):
+            continue
+        # try to extract field name and value
+        # handle **Field:** style
+        m = re.match(r"\*{0,2}([^:]+?)\*{0,2}:\s*(.*)", line_clean)
+        if m:
+            fname = m.group(1).strip()
+            fval = m.group(2).strip()
+            # clean leading/trailing asterisks/spaces
+            fval = re.sub(r"^\*{0,2}\s*", "", fval)
+            fval = re.sub(r"\s*\*{0,2}$", "", fval)
+            fl = fname.lower()
+            for pat, key in field_map:
+                if re.search(pat, fl):
+                    # if key already has content and it's long, maybe append? but simple
+                    if not char.get(key):
+                        char[key] = fval
+                    else:
+                        char[key] = (
+                            char[key] + " " + fval
+                            if len(char[key]) < 2000
+                            else char[key]
+                        )  # keep reasonable
+                    break
+    # If nothing mapped, put whole block in misc
+    if all(
+        not v
+        for k, v in char.items()
+        if k not in ("id", "name", "include_in_context", "notes", "misc")
+    ):
+        char["misc"] = block
+    return char
+
+
+def _world_section_id_for(title, index=None):
+    """Best-effort mapping of a section title to a canonical world section id."""
+    tlow = (title or "").lower()
+    keyword_map = [
+        ("time_period_and_setting", ["time period", "setting"]),
+        ("major_locations", ["location", "place", "geography", "region"]),
+        ("cultural_historical_elements", ["cultur", "histor"]),
+        ("technology_magical_elements", ["technolog", "magic", "weave"]),
+        ("social_political_structures", ["social", "politic", "faction"]),
+        ("environment_and_atmosphere", ["environment", "atmosphere"]),
+    ]
+    for sid, keywords in keyword_map:
+        if any(keyword in tlow for keyword in keywords):
+            return sid
+    if index is not None and 0 <= index < len(WORLD_SECTION_IDS):
+        return WORLD_SECTION_IDS[index]
+    return "other"
+
+
+def parse_world_text_to_json(text):
+    """Parse worldbuilding text into structured JSON."""
+    if not text or not text.strip():
+        return {
+            "version": 1,
+            "generated_at": _now_iso(),
+            "sections": [],
+            "full_text": "",
+        }
+
+    text_stripped = text.strip()
+    sections = []
+
+    numbered_pattern = re.compile(
+        r"^\s*(\d+)\.\s+(.+?)(?:\n|$)", re.MULTILINE | re.IGNORECASE
+    )
+    matches = list(numbered_pattern.finditer(text_stripped))
+
+    if matches:
+        for i, m in enumerate(matches):
+            sec_num = int(m.group(1))
+            title = m.group(2).strip()
+            start = m.end()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(text_stripped)
+            content = text_stripped[start:end].strip()
+            content = re.sub(r"^[\s\-:]*\n?", "", content)
+            sid = _world_section_id_for(title, sec_num - 1)
+            sections.append(
+                {
+                    "id": sid,
+                    "title": title,
+                    "content": content,
+                    "include_in_context": True,
+                }
+            )
+        if sections:
+            return {
+                "version": 1,
+                "generated_at": _now_iso(),
+                "sections": sections,
+                "full_text": text_stripped,
+            }
+
+    header_pattern = re.compile(r"^#{2,3}\s+(.+?)$", re.MULTILINE)
+    hmatches = list(header_pattern.finditer(text_stripped))
+    if hmatches:
+        for i, m in enumerate(hmatches):
+            title_raw = m.group(1).strip()
+            title = re.sub(r"^\*+", "", title_raw).strip()
+            title = re.sub(r"\*+$", "", title).strip()
+            start = m.end()
+            end = (
+                hmatches[i + 1].start() if i + 1 < len(hmatches) else len(text_stripped)
+            )
+            content = text_stripped[start:end].strip()
+            sid = _world_section_id_for(title)
+            sections.append(
+                {
+                    "id": sid,
+                    "title": title,
+                    "content": content,
+                    "include_in_context": True,
+                }
+            )
+        if sections:
+            return {
+                "version": 1,
+                "generated_at": _now_iso(),
+                "sections": sections,
+                "full_text": text_stripped,
+            }
+
+    bold_pattern = re.compile(r"^\s*\*\*(.+?)\*\*\s*$", re.MULTILINE)
+    bmatches = list(bold_pattern.finditer(text_stripped))
+    if bmatches and len(bmatches) >= 2:
+        for i, m in enumerate(bmatches):
+            title = m.group(1).strip()
+            start = m.end()
+            end = (
+                bmatches[i + 1].start() if i + 1 < len(bmatches) else len(text_stripped)
+            )
+            content = text_stripped[start:end].strip()
+            sid = _world_section_id_for(title)
+            sections.append(
+                {
+                    "id": sid,
+                    "title": title,
+                    "content": content,
+                    "include_in_context": True,
+                }
+            )
+        if sections:
+            return {
+                "version": 1,
+                "generated_at": _now_iso(),
+                "sections": sections,
+                "full_text": text_stripped,
+            }
+
+    # Try splitting by top-level world sections like ### **LEO'S WORLD** or ### **ELYSIA**
+    h3_pattern = re.compile(r"^###\s+(.+?)$", re.MULTILINE)
+    h3m = list(h3_pattern.finditer(text_stripped))
+    if h3m:
+        for i, m in enumerate(h3m):
+            title_raw = m.group(1).strip()
+            title = re.sub(r"^\*+", "", title_raw).strip()
+            title = re.sub(r"\*+$", "", title).strip()
+            start = m.end()
+            end = h3m[i + 1].start() if i + 1 < len(h3m) else len(text_stripped)
+            content = text_stripped[start:end].strip()
+            sid = _world_section_id_for(title)
+            sections.append(
+                {
+                    "id": sid,
+                    "title": title,
+                    "content": content,
+                    "include_in_context": True,
+                }
+            )
+        if sections:
+            return {
+                "version": 1,
+                "generated_at": _now_iso(),
+                "sections": sections,
+                "full_text": text_stripped,
+            }
+    sections = [
+        {
+            "id": "other",
+            "title": "World Setting",
+            "content": text_stripped,
+            "include_in_context": True,
+        }
+    ]
+    return {
+        "version": 1,
+        "generated_at": _now_iso(),
+        "sections": sections,
+        "full_text": text_stripped,
+    }
+
+
+# --- Structured world/characters JSON I/O ---
+
+WORLD_SECTION_IDS = [
+    "time_period_and_setting",
+    "major_locations",
+    "cultural_historical_elements",
+    "technology_magical_elements",
+    "social_political_structures",
+    "environment_and_atmosphere",
+    "other",
+]
+
+CHARACTER_FIELD_KEYS = [
+    "role",
+    "age_species",
+    "appearance",
+    "personality",
+    "goal_motivation",
+    "background",
+    "flaw",
+    "skills",
+    "relationships",
+    "arc",
+    "misc",
+    "notes",
+]
+
+
+def _empty_world():
+    return {
+        "version": 1,
+        "generated_at": _now_iso(),
+        "sections": [],
+        "full_text": "",
+    }
+
+
+def _normalize_world(world):
+    """Coerce a world payload into the canonical structured shape."""
+    if isinstance(world, str):
+        return parse_world_text_to_json(world)
+    if not isinstance(world, dict):
+        return parse_world_text_to_json("")
+
+    sections = world.get("sections")
+    full_text = world.get("full_text", "") or ""
+    if not isinstance(sections, list):
+        sections = []
+    if not sections and full_text.strip():
+        parsed = parse_world_text_to_json(world.get("full_text", ""))
+        sections = parsed.get("sections", [])
+
+    normalized_sections = []
+    for index, section in enumerate(sections):
+        if not isinstance(section, dict):
+            continue
+        sid = (
+            section.get("id")
+            or WORLD_SECTION_IDS[min(index, len(WORLD_SECTION_IDS) - 1)]
+        )
+        title = section.get("title") or sid.replace("_", " ").title()
+        content = section.get("content") or ""
+        include = section.get("include_in_context", True)
+        normalized_sections.append(
+            {
+                "id": str(sid),
+                "title": str(title),
+                "content": "" if content is None else str(content),
+                "include_in_context": bool(include),
+            }
+        )
+
+    full_text = world.get("full_text") or ""
+    if not full_text and normalized_sections:
+        full_text = "\n\n".join(
+            f"## {s['title']}\n\n{s['content']}".strip() for s in normalized_sections
+        )
+
+    return {
+        "version": world.get("version", 1),
+        "generated_at": world.get("generated_at") or _now_iso(),
+        "sections": normalized_sections,
+        "full_text": full_text,
+    }
+
+
+def empty_world():
+    return {
+        "version": 1,
+        "generated_at": _now_iso(),
+        "sections": [],
+        "full_text": "",
+    }
+
+
+def load_world():
+    """Return the structured world setting, migrating legacy text once."""
+    if os.path.exists(WORLD_JSON_FILE):
+        try:
+            with open(WORLD_JSON_FILE, "r", encoding="utf-8") as f:
+                return _normalize_world(json.load(f))
+        except (ValueError, OSError) as e:
+            print(f"Could not read {WORLD_JSON_FILE}: {e}")
+
+    if os.path.exists(WORLD_FILE):
+        with open(WORLD_FILE, encoding="utf-8") as f:
+            legacy = f.read()
+        world = parse_world_text_to_json(legacy)
+        if world.get("sections"):
+            save_world_json(world)
+            print(f"Migrated legacy world setting to {WORLD_JSON_FILE}")
+        return world
+
+    return empty_world()
+
+
+def save_world_json(world):
+    """Validate and persist the structured world setting."""
+    normalized = _normalize_world(world)
+    os.makedirs(BOOK_OUTPUT_DIR, exist_ok=True)
+    with open(WORLD_JSON_FILE, "w", encoding="utf-8") as f:
+        json.dump(normalized, f, indent=2, ensure_ascii=False)
+    return normalized
+
+
+def world_to_text(world):
+    """Serialize a structured world back into readable text for prompts/editors."""
+    if not world:
+        return ""
+    sections = world.get("sections") or []
+    parts = []
+    for section in sections:
+        title = section.get("title") or section.get("id", "")
+        content = (section.get("content") or "").strip()
+        if title and content:
+            parts.append(f"## {title}\n\n{content}")
+        elif content:
+            parts.append(content)
+        elif title:
+            parts.append(f"## {title}")
+    if parts:
+        return "\n\n".join(parts).strip()
+    return (world.get("full_text") or "").strip()
+
+
+def parse_and_save_world_text(text):
+    """Parse raw world text, persist it as JSON, and return the structure."""
+    return save_world_json(parse_world_text_to_json(text))
+
+
+def save_world_text(text):
+    """Persist world content from a text form, writing JSON and a txt mirror."""
+    text = text or ""
+    os.makedirs(BOOK_OUTPUT_DIR, exist_ok=True)
+    with open(WORLD_FILE, "w", encoding="utf-8") as f:
+        f.write(text)
+    return save_world_json(parse_world_text_to_json(text))
+
+
+def load_characters():
+    """Return structured character data, migrating legacy characters.txt."""
+    if os.path.exists(CHARACTERS_JSON_FILE):
+        try:
+            with open(CHARACTERS_JSON_FILE, encoding="utf-8") as f:
+                return _normalize_characters(json.load(f))
+        except (ValueError, OSError) as e:
+            print(f"Could not read {CHARACTERS_JSON_FILE}: {e}")
+
+    if os.path.exists(CHARACTERS_FILE):
+        with open(CHARACTERS_FILE, encoding="utf-8") as f:
+            legacy = f.read()
+        parsed = parse_characters_text_to_json(legacy)
+        if parsed.get("characters"):
+            save_characters_json(parsed)
+            print(f"Migrated legacy characters to {CHARACTERS_JSON_FILE}")
+        return parsed
+    return empty_characters()
+
+
+def empty_characters():
+    return {
+        "version": 1,
+        "generated_at": _now_iso(),
+        "characters": [],
+        "raw_text": "",
+    }
+
+
+def _normalize_characters(data):
+    if not data:
+        return empty_characters()
+    if isinstance(data, list):
+        data = {"characters": data}
+    characters = []
+    for index, char in enumerate(data.get("characters") or []):
+        if not isinstance(char, dict):
+            continue
+        char_id = char.get("id") or f"char_{index + 1}"
+        normalized = {"id": str(char_id)}
+        normalized["name"] = str(char.get("name") or char.get("Name") or "")
+        for key in CHARACTER_FIELD_KEYS:
+            value = char.get(key)
+            normalized[key] = "" if value is None else str(value)
+        normalized["include_in_context"] = bool(char.get("include_in_context", True))
+        characters.append(normalized)
+    return {
+        "version": data.get("version", 1),
+        "generated_at": data.get("generated_at") or _now_iso(),
+        "characters": characters,
+        "raw_text": data.get("raw_text") or "",
+    }
+
+
+def save_characters_json(data):
+    normalized = _normalize_characters(data)
+    os.makedirs(BOOK_OUTPUT_DIR, exist_ok=True)
+    with open(CHARACTERS_JSON_FILE, "w", encoding="utf-8") as f:
+        json.dump(normalized, f, indent=2, ensure_ascii=False)
+    return normalized
+
+
+def save_characters_text(text):
+    """Persist character profiles from a text form, writing JSON and a txt mirror."""
+    text = text or ""
+    os.makedirs(BOOK_OUTPUT_DIR, exist_ok=True)
+    with open(CHARACTERS_FILE, "w", encoding="utf-8") as f:
+        f.write(text)
+    return save_characters_json(parse_characters_text_to_json(text))
+
+
+def characters_to_text(data):
+    """Serialize structured characters back into readable profile text."""
+    if not data:
+        return ""
+    characters = data.get("characters") or []
+    if not characters:
+        return (data.get("raw_text") or "").strip()
+    labels = {
+        "role": "Role",
+        "age_species": "Age/Species",
+        "appearance": "Appearance",
+        "personality": "Personality",
+        "goal_motivation": "Goal/motivation",
+        "background": "Background",
+        "flaw": "Flaw",
+        "skills": "Skills",
+        "relationships": "Relationships",
+        "arc": "Arc",
+        "misc": "Misc",
+        "notes": "Notes",
+    }
+    blocks = ["CHARACTER_PROFILES:"]
+    for char in characters:
+        name = (char.get("name") or "").strip() or char.get("id", "")
+        blocks.append(f"[{name}]:")
+        for key, label in labels.items():
+            value = (char.get(key) or "").strip()
+            if value:
+                blocks.append(f"- {label}: {value}")
+        blocks.append("")
+    return "\n".join(blocks).strip()
+
+
+def parse_and_save_characters_text(text):
+    return save_characters_json(parse_characters_text_to_json(text))
 
 
 if __name__ == "__main__":

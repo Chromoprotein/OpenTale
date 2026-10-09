@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "includes/quill_editor.html" import quill_editor %}
 
 {% block title %}OpenTale - Character Creation{% endblock %}
 
@@ -84,11 +83,73 @@
         </div>
     </div>
     
-    <div class="col-12" id="charactersResultContainer" {% if not characters %}style="display: none;"{% endif %}>
-        <form id="saveCharactersForm" action="/save_characters" method="post">
+    <div class="col-12" id="charactersResultContainer" {% if not characters_data.characters %}style="display: none;"{% endif %}>
+        <form id="saveCharactersForm">
+            <p class="text-muted">Edit each character profile. Characters can later be included or excluded individually as context when writing chapters.</p>
+            <div id="characterCards">
+                {% for character in characters_data.characters %}
+                <div class="card mb-3 character-card" data-character-id="{{ character.id }}">
+                    <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+                        <input type="text" class="form-control form-control-sm character-name" value="{{ character.name }}" style="max-width: 280px" placeholder="Character name">
+                        <div class="form-check ms-auto me-2">
+                            <input class="form-check-input character-include" type="checkbox" {% if character.include_in_context %}checked{% endif %} id="charInclude{{ loop.index }}">
+                            <label class="form-check-label small" for="charInclude{{ loop.index }}">Include in chapter context</label>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-danger remove-character-btn" title="Remove character"><i class="bi bi-trash3"></i></button>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted">Role</label>
+                                <textarea class="form-control structured-field char-field" data-field="role" rows="2">{{ character.role }}</textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted">Age/Species</label>
+                                <textarea class="form-control structured-field char-field" data-field="age_species" rows="2">{{ character.age_species }}</textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small text-muted">Appearance</label>
+                                <textarea class="form-control structured-field char-field" data-field="appearance" rows="3">{{ character.appearance }}</textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small text-muted">Personality</label>
+                                <textarea class="form-control structured-field char-field" data-field="personality" rows="3">{{ character.personality }}</textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted">Goal/motivation</label>
+                                <textarea class="form-control structured-field char-field" data-field="goal_motivation" rows="3">{{ character.goal_motivation }}</textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted">Background</label>
+                                <textarea class="form-control structured-field char-field" data-field="background" rows="3">{{ character.background }}</textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted">Flaw</label>
+                                <textarea class="form-control structured-field char-field" data-field="flaw" rows="2">{{ character.flaw }}</textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted">Skills</label>
+                                <textarea class="form-control structured-field char-field" data-field="skills" rows="2">{{ character.skills }}</textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted">Relationships</label>
+                                <textarea class="form-control structured-field char-field" data-field="relationships" rows="3">{{ character.relationships }}</textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted">Arc</label>
+                                <textarea class="form-control structured-field char-field" data-field="arc" rows="3">{{ character.arc }}</textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small text-muted">Misc</label>
+                                <textarea class="form-control structured-field char-field" data-field="misc" rows="2">{{ character.misc }}</textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
             <div class="mb-3">
-                <label for="charactersContent" class="form-label">Edit your characters if needed:</label>
-                {{ quill_editor('charactersEditor', 'characters', characters) }}
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="addCharacterBtn"><i class="bi bi-plus-lg me-1"></i>Add Character</button>
             </div>
             <div class="d-flex justify-content-between">
                 <div class="d-flex gap-2">
@@ -118,6 +179,67 @@
         </div>
     </div>
 </div>
+
+<template id="characterCardTemplate">
+    <div class="card mb-3 character-card" data-character-id="">
+        <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+            <input type="text" class="form-control form-control-sm character-name" value="" style="max-width: 280px" placeholder="Character name">
+            <div class="form-check ms-auto me-2">
+                <input class="form-check-input character-include" type="checkbox" checked>
+                <label class="form-check-label small">Include in chapter context</label>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-danger remove-character-btn" title="Remove character"><i class="bi bi-trash3"></i></button>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label small text-muted">Role</label>
+                    <textarea class="form-control structured-field char-field" data-field="role" rows="2"></textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small text-muted">Age/Species</label>
+                    <textarea class="form-control structured-field char-field" data-field="age_species" rows="2"></textarea>
+                </div>
+                <div class="col-12">
+                    <label class="form-label small text-muted">Appearance</label>
+                    <textarea class="form-control structured-field char-field" data-field="appearance" rows="3"></textarea>
+                </div>
+                <div class="col-12">
+                    <label class="form-label small text-muted">Personality</label>
+                    <textarea class="form-control structured-field char-field" data-field="personality" rows="3"></textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small text-muted">Goal/motivation</label>
+                    <textarea class="form-control structured-field char-field" data-field="goal_motivation" rows="3"></textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small text-muted">Background</label>
+                    <textarea class="form-control structured-field char-field" data-field="background" rows="3"></textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small text-muted">Flaw</label>
+                    <textarea class="form-control structured-field char-field" data-field="flaw" rows="2"></textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small text-muted">Skills</label>
+                    <textarea class="form-control structured-field char-field" data-field="skills" rows="2"></textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small text-muted">Relationships</label>
+                    <textarea class="form-control structured-field char-field" data-field="relationships" rows="3"></textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small text-muted">Arc</label>
+                    <textarea class="form-control structured-field char-field" data-field="arc" rows="3"></textarea>
+                </div>
+                <div class="col-12">
+                    <label class="form-label small text-muted">Misc</label>
+                    <textarea class="form-control structured-field char-field" data-field="misc" rows="2"></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
 
 <script>
 $(document).ready(function() {
@@ -189,7 +311,7 @@ $(document).ready(function() {
             $('#useDraftBtn').prop('disabled', true);
             clearChatHistory(CHAT_KEY);
             $('#chatMessages').empty();
-            if (!$('#charactersEditor-hidden').val().trim()) {
+            if (gatherCharacters().length === 0) {
                 $('#chatMessages').html('<div class="mb-3"><div class="d-inline-block bg-body-tertiary p-2 rounded-3" style="max-width: 80%"><p class="mb-0">Tell me about the characters you\'d like to create for your book. What kind of protagonists, antagonists, or supporting characters are you thinking of?</p></div></div>');
             }
             $('#chatTypingIndicator').addClass('d-none');
@@ -455,16 +577,10 @@ $(document).ready(function() {
         btn.prop('disabled', true);
         $.post('/save_characters', { characters: lastDraftText })
             .done(function() {
-                const editorElement = document.getElementById('charactersEditor');
-                if (editorElement && editorElement.quillHandler) {
-                    editorElement.quillHandler.updateEditorWithMarkdown(lastDraftText);
-                }
-                $('#charactersResultContainer').show();
+                window.location.reload();
             })
             .fail(function() {
                 alert('Error saving the characters draft. Please try again.');
-            })
-            .always(function() {
                 btn.prop('disabled', false);
             });
     });
@@ -529,22 +645,66 @@ $(document).ready(function() {
         return message.replace(/\n/g, '<br>');
     }
     
+    // Add a blank character card to the editor
+    function bindRemoveButtons(scope) {
+        (scope || document).querySelectorAll('.remove-character-btn').forEach(function(btn) {
+            if (btn.dataset.bound) return;
+            btn.dataset.bound = '1';
+            btn.addEventListener('click', function() {
+                btn.closest('.character-card').remove();
+            });
+        });
+    }
+
+    $('#addCharacterBtn').click(function() {
+        const template = document.getElementById('characterCardTemplate');
+        const clone = template.content.cloneNode(true);
+        document.getElementById('characterCards').appendChild(clone);
+        const last = document.getElementById('characterCards').lastElementChild;
+        if (window.StructuredEditor) window.StructuredEditor.init(last);
+        bindRemoveButtons(last);
+        last.querySelector('.character-name').focus();
+    });
+
+    bindRemoveButtons(document);
+
+    function gatherCharacters() {
+        const characters = [];
+        document.querySelectorAll('#characterCards .character-card').forEach(function(card, index) {
+            const name = card.querySelector('.character-name').value.trim();
+            const include = card.querySelector('.character-include').checked;
+            const fields = {};
+            card.querySelectorAll('.char-field').forEach(function(field) {
+                fields[field.dataset.field] = field.value;
+            });
+            const hasContent = name || Object.values(fields).some(function(v) { return (v || '').trim(); });
+            if (!hasContent) return;
+            characters.push(Object.assign({
+                id: card.dataset.characterId || ('char_' + (index + 1)),
+                name: name,
+                include_in_context: include
+            }, fields));
+        });
+        return characters;
+    }
+
     // Save characters
     $('#saveCharactersForm').submit(function(e) {
         e.preventDefault();
         $('#savingIndicator').removeClass('d-none');
         $('#savedIndicator').addClass('d-none');
         $('#saveCharactersBtn').prop('disabled', true);
-        
+
         $.ajax({
-            type: 'POST',
-            url: '/save_characters',
-            data: $(this).serialize(),
+            type: 'PUT',
+            url: '/api/characters',
+            contentType: 'application/json',
+            data: JSON.stringify({ characters: gatherCharacters() }),
             success: function() {
                 $('#savingIndicator').addClass('d-none');
                 $('#savedIndicator').removeClass('d-none');
                 $('#saveCharactersBtn').prop('disabled', false);
-                
+
                 // Hide the saved indicator after 3 seconds
                 setTimeout(function() {
                     $('#savedIndicator').addClass('d-none');

@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "includes/quill_editor.html" import quill_editor %}
 
 {% block title %}OpenTale - World Setting{% endblock %}
 
@@ -75,11 +74,28 @@
     </div>
     
     <!-- Final world setting container -->
-    <div class="col-12" id="worldResultContainer" {% if not world_theme %}style="display: none;"{% endif %} data-has-world="{{ world_theme|length > 0 }}">
-        <form id="saveWorldForm" action="/save_world" method="post">
+    <div class="col-12" id="worldResultContainer" {% if not world.sections %}style="display: none;"{% endif %} data-has-world="{{ world.sections|length > 0 }}">
+        <form id="saveWorldForm">
+            <p class="text-muted">Edit each part of the world setting. Each section can later be included or excluded as context when writing chapters.</p>
+            <div id="worldSections">
+                {% for section in world.sections %}
+                <div class="card mb-3 world-section" data-section-id="{{ section.id }}">
+                    <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+                        <input type="text" class="form-control form-control-sm section-title" value="{{ section.title }}" style="max-width: 320px">
+                        <div class="form-check ms-auto me-2">
+                            <input class="form-check-input section-include" type="checkbox" {% if section.include_in_context %}checked{% endif %} id="worldInclude{{ loop.index }}">
+                            <label class="form-check-label small" for="worldInclude{{ loop.index }}">Include in chapter context</label>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-danger remove-section-btn" title="Remove section"><i class="bi bi-trash3"></i></button>
+                    </div>
+                    <div class="card-body">
+                        <textarea class="form-control structured-field section-content" rows="6">{{ section.content }}</textarea>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
             <div class="mb-3">
-                <label for="worldEditor" class="form-label">Edit your world setting if needed:</label>
-                {{ quill_editor('worldEditor', 'world_theme', world_theme) }}
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="addSectionBtn"><i class="bi bi-plus-lg me-1"></i>Add Section</button>
             </div>
             <div class="d-flex justify-content-between">
                 <div class="d-flex gap-2">
@@ -94,7 +110,7 @@
                 {% endif %}
             </div>
         </form>
-        
+
         <div id="savingIndicator" class="alert alert-info mt-3 d-none">
             <div class="d-flex align-items-center">
                 <div class="spinner-border spinner-border-sm me-2" role="status">
@@ -109,6 +125,22 @@
         </div>
     </div>
 </div>
+
+<template id="worldSectionTemplate">
+    <div class="card mb-3 world-section" data-section-id="other">
+        <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+            <input type="text" class="form-control form-control-sm section-title" value="" style="max-width: 320px" placeholder="Section title">
+            <div class="form-check ms-auto me-2">
+                <input class="form-check-input section-include" type="checkbox" checked>
+                <label class="form-check-label small">Include in chapter context</label>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-danger remove-section-btn" title="Remove section"><i class="bi bi-trash3"></i></button>
+        </div>
+        <div class="card-body">
+            <textarea class="form-control structured-field section-content" rows="6" placeholder="Worldbuilding details..."></textarea>
+        </div>
+    </div>
+</template>
 
 <script>
 $(document).ready(function() {
@@ -439,16 +471,10 @@ $(document).ready(function() {
         btn.prop('disabled', true);
         $.post('/save_world', { world_theme: lastDraftText })
             .done(function() {
-                const editorElement = document.getElementById('worldEditor');
-                if (editorElement && editorElement.quillHandler) {
-                    editorElement.quillHandler.updateEditorWithMarkdown(lastDraftText);
-                }
-                $('#worldResultContainer').show();
+                window.location.reload();
             })
             .fail(function() {
                 alert('Error saving the world draft. Please try again.');
-            })
-            .always(function() {
                 btn.prop('disabled', false);
             });
     });
@@ -513,22 +539,63 @@ $(document).ready(function() {
         return message.replace(/\n/g, '<br>');
     }
     
+    // Add a blank section to the editor
+    function bindRemoveButtons(scope) {
+        (scope || document).querySelectorAll('.remove-section-btn').forEach(function(btn) {
+            if (btn.dataset.bound) return;
+            btn.dataset.bound = '1';
+            btn.addEventListener('click', function() {
+                btn.closest('.world-section').remove();
+            });
+        });
+    }
+
+    $('#addSectionBtn').click(function() {
+        const template = document.getElementById('worldSectionTemplate');
+        const clone = template.content.cloneNode(true);
+        document.getElementById('worldSections').appendChild(clone);
+        const last = document.getElementById('worldSections').lastElementChild;
+        if (window.StructuredEditor) window.StructuredEditor.init(last);
+        bindRemoveButtons(last);
+        last.querySelector('.section-title').focus();
+    });
+
+    bindRemoveButtons(document);
+
+    function gatherWorld() {
+        const sections = [];
+        document.querySelectorAll('#worldSections .world-section').forEach(function(card, index) {
+            const title = card.querySelector('.section-title').value.trim();
+            const content = card.querySelector('.section-content').value;
+            const include = card.querySelector('.section-include').checked;
+            if (!title && !content.trim()) return;
+            sections.push({
+                id: card.dataset.sectionId || 'section_' + index,
+                title: title || ('Section ' + (index + 1)),
+                content: content,
+                include_in_context: include
+            });
+        });
+        return sections;
+    }
+
     // Save world theme
     $('#saveWorldForm').submit(function(e) {
         e.preventDefault();
         $('#savingIndicator').removeClass('d-none');
         $('#savedIndicator').addClass('d-none');
         $('#saveWorldBtn').prop('disabled', true);
-        
+
         $.ajax({
-            type: 'POST',
-            url: '/save_world',
-            data: $(this).serialize(),
+            type: 'PUT',
+            url: '/api/world',
+            contentType: 'application/json',
+            data: JSON.stringify({ sections: gatherWorld() }),
             success: function() {
                 $('#savingIndicator').addClass('d-none');
                 $('#savedIndicator').removeClass('d-none');
                 $('#saveWorldBtn').prop('disabled', false);
-                
+
                 // Hide the saved indicator after 3 seconds
                 setTimeout(function() {
                     $('#savedIndicator').addClass('d-none');
