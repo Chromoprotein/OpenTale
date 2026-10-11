@@ -35,41 +35,27 @@ Write engaging, immersive prose that advances the story while staying true to th
 CHAPTER_GENERATION_PROMPT = """
 Generate Chapter {chapter_number}: {chapter_title}
 The entire chapter must be in {tense} and from a {point_of_view} point of view. 
-Everything must be filtered through the senses, thoughts, and emotions of the specified POV character. 
-The reader only knows what the POV character knows.
-Include lots of realistic dialogue, deep point of view, and show more than tell. 
 
 ---
 Based on the following:
 - **Chapter outline:** 
 {chapter_outline}
 
-- **World:** 
+- **Worldbuilding - include only what fits naturally:** 
 {world_theme}
 
-- **Characters:** 
+- **Characters - Do not invent new characters unless the outline mentions additional characters who aren't listed here:** 
 {relevant_characters}
 
-- **Scenes:**
+- **Scenes that should be included in the chapter:**
 {scene_details}
 
-- **Previous chapter outline:**
+- **Previous chapter outline (for consistency):**
 {previous_chapter_outline}
 
 - **Additional Prompt:**
 {master_prompt}
 
----
-
-Write a complete chapter that:
-1. Follows the outlined plot points
-2. Maintains consistent character voices and development
-3. Incorporates world-building details naturally
-4. Creates engaging prose with a mix of dialogue, action, and description
-5. Has proper pacing with rising and falling tension
-6. Connects logically to previous and upcoming chapters
-
-Give the chapter a clear beginning, middle, and end. There is no minimum length: cover the story beats naturally and completely, and end the chapter when the material concludes rather than padding with filler.
 """
 
 # Chapter editing prompt
@@ -83,14 +69,11 @@ Based on the following:
 - **Chapter outline:** 
 {chapter_outline}
 
-- **World:** 
+- **Worldbuilding - only include what fits naturally:** 
 {world_theme}
 
 - **Characters:** 
 {relevant_characters}
-
-- **Scenes:**
-{scene_details}
 
 - **Previous chapter outline:**
 {previous_chapter_outline}
@@ -114,7 +97,6 @@ Provide a comprehensive edit that:
 6. Strengthens dialogue and character interactions
 7. Maintains continuity with established world and plot
 8. Fixes any grammatical or structural issues
-9. Ensures the chapter covers its story beats naturally and completely without padding or filler
 
 Return the complete edited chapter, and nothing else.
 """
@@ -134,13 +116,12 @@ Chapter outline: {chapter_outline}
 """
 
 # Inline revise prompt
-INLINE_REVISE_PROMPT = """Revise only the text found between [passage] and [/passage]. Improve clarity, tone, rhythm, and emotional or narrative impact. You may extend the original text, but the result must be no shorter than the original and no more than approximately three times its length.
+INLINE_REVISE_PROMPT = """Revise only the text found between [passage] and [/passage]. Improve clarity, tone, rhythm, and emotional or narrative impact. You may extend the original text, but not excessively.
 
 Rules:
 - Output only the revised text. Do NOT include any tags or explanations.
 - Follow any optional user input, or the chapter outline if it is present below. Ignore them if not.
 - Preserve the meaning and intention of the original text.
-- Avoid unnecessary filler — all additions must serve tone, character, or clarity.
 
 [passage]
 {context}
