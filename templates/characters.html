@@ -5,6 +5,18 @@
 {% block navbar_title %}Character Development Chat{% endblock %}
 
 {% block content %}
+{% macro field_row(field, label, value='', rows=3, kind='textarea') %}
+<div class="col-12">
+    <div class="d-flex align-items-center justify-content-between mb-1 structured-field-header">
+        <label class="form-label small text-muted mb-0">{{ label }}</label>
+    </div>
+    {% if kind == 'input' %}
+    <input type="text" class="form-control form-control-sm char-field" data-field="{{ field }}" value="{{ value }}">
+    {% else %}
+    <textarea class="form-control structured-field char-field" data-field="{{ field }}" rows="{{ rows }}">{{ value }}</textarea>
+    {% endif %}
+</div>
+{% endmacro %}
 <div class="row">
     <!-- Chat interface -->
     <div class="col-12 mb-4" id="chatContainer">
@@ -90,6 +102,7 @@
                 {% for character in characters_data.characters %}
                 <div class="card mb-3 character-card" data-character-id="{{ character.id }}">
                     <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+                        <button type="button" class="btn btn-sm btn-outline-secondary character-collapse-btn" data-bs-toggle="collapse" data-bs-target="#charBody{{ loop.index }}" aria-expanded="true" title="Collapse or expand"><i class="bi bi-chevron-down"></i></button>
                         <input type="text" class="form-control form-control-sm character-name" value="{{ character.name }}" style="max-width: 280px" placeholder="Character name">
                         <div class="form-check ms-auto me-2">
                             <input class="form-check-input character-include" type="checkbox" {% if character.include_in_context %}checked{% endif %} id="charInclude{{ loop.index }}">
@@ -97,51 +110,20 @@
                         </div>
                         <button type="button" class="btn btn-sm btn-outline-danger remove-character-btn" title="Remove character"><i class="bi bi-trash3"></i></button>
                     </div>
-                    <div class="card-body">
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label small text-muted">Role</label>
-                                <textarea class="form-control structured-field char-field" data-field="role" rows="2">{{ character.role }}</textarea>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small text-muted">Age/Species</label>
-                                <textarea class="form-control structured-field char-field" data-field="age_species" rows="2">{{ character.age_species }}</textarea>
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label small text-muted">Appearance</label>
-                                <textarea class="form-control structured-field char-field" data-field="appearance" rows="3">{{ character.appearance }}</textarea>
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label small text-muted">Personality</label>
-                                <textarea class="form-control structured-field char-field" data-field="personality" rows="3">{{ character.personality }}</textarea>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small text-muted">Goal/motivation</label>
-                                <textarea class="form-control structured-field char-field" data-field="goal_motivation" rows="3">{{ character.goal_motivation }}</textarea>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small text-muted">Background</label>
-                                <textarea class="form-control structured-field char-field" data-field="background" rows="3">{{ character.background }}</textarea>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small text-muted">Flaw</label>
-                                <textarea class="form-control structured-field char-field" data-field="flaw" rows="2">{{ character.flaw }}</textarea>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small text-muted">Skills</label>
-                                <textarea class="form-control structured-field char-field" data-field="skills" rows="2">{{ character.skills }}</textarea>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small text-muted">Relationships</label>
-                                <textarea class="form-control structured-field char-field" data-field="relationships" rows="3">{{ character.relationships }}</textarea>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small text-muted">Arc</label>
-                                <textarea class="form-control structured-field char-field" data-field="arc" rows="3">{{ character.arc }}</textarea>
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label small text-muted">Misc</label>
-                                <textarea class="form-control structured-field char-field" data-field="misc" rows="2">{{ character.misc }}</textarea>
+                    <div class="collapse show" id="charBody{{ loop.index }}">
+                        <div class="card-body">
+                            <div class="row g-3">
+                                {{ field_row('role', 'Role', character.role, kind='input') }}
+                                {{ field_row('age_species', 'Age/Species', character.age_species, kind='input') }}
+                                {{ field_row('appearance', 'Appearance', character.appearance) }}
+                                {{ field_row('personality', 'Personality', character.personality) }}
+                                {{ field_row('goal_motivation', 'Goal/motivation', character.goal_motivation) }}
+                                {{ field_row('background', 'Background', character.background) }}
+                                {{ field_row('flaw', 'Flaw', character.flaw, rows=2) }}
+                                {{ field_row('skills', 'Skills', character.skills, rows=2) }}
+                                {{ field_row('relationships', 'Relationships', character.relationships) }}
+                                {{ field_row('arc', 'Arc', character.arc) }}
+                                {{ field_row('misc', 'Misc', character.misc, rows=2) }}
                             </div>
                         </div>
                     </div>
@@ -183,6 +165,7 @@
 <template id="characterCardTemplate">
     <div class="card mb-3 character-card" data-character-id="">
         <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+            <button type="button" class="btn btn-sm btn-outline-secondary character-collapse-btn" data-bs-toggle="collapse" data-bs-target="#charBodyTemplate" aria-expanded="true" title="Collapse or expand"><i class="bi bi-chevron-down"></i></button>
             <input type="text" class="form-control form-control-sm character-name" value="" style="max-width: 280px" placeholder="Character name">
             <div class="form-check ms-auto me-2">
                 <input class="form-check-input character-include" type="checkbox" checked>
@@ -190,51 +173,20 @@
             </div>
             <button type="button" class="btn btn-sm btn-outline-danger remove-character-btn" title="Remove character"><i class="bi bi-trash3"></i></button>
         </div>
-        <div class="card-body">
-            <div class="row g-3">
-                <div class="col-md-6">
-                    <label class="form-label small text-muted">Role</label>
-                    <textarea class="form-control structured-field char-field" data-field="role" rows="2"></textarea>
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label small text-muted">Age/Species</label>
-                    <textarea class="form-control structured-field char-field" data-field="age_species" rows="2"></textarea>
-                </div>
-                <div class="col-12">
-                    <label class="form-label small text-muted">Appearance</label>
-                    <textarea class="form-control structured-field char-field" data-field="appearance" rows="3"></textarea>
-                </div>
-                <div class="col-12">
-                    <label class="form-label small text-muted">Personality</label>
-                    <textarea class="form-control structured-field char-field" data-field="personality" rows="3"></textarea>
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label small text-muted">Goal/motivation</label>
-                    <textarea class="form-control structured-field char-field" data-field="goal_motivation" rows="3"></textarea>
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label small text-muted">Background</label>
-                    <textarea class="form-control structured-field char-field" data-field="background" rows="3"></textarea>
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label small text-muted">Flaw</label>
-                    <textarea class="form-control structured-field char-field" data-field="flaw" rows="2"></textarea>
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label small text-muted">Skills</label>
-                    <textarea class="form-control structured-field char-field" data-field="skills" rows="2"></textarea>
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label small text-muted">Relationships</label>
-                    <textarea class="form-control structured-field char-field" data-field="relationships" rows="3"></textarea>
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label small text-muted">Arc</label>
-                    <textarea class="form-control structured-field char-field" data-field="arc" rows="3"></textarea>
-                </div>
-                <div class="col-12">
-                    <label class="form-label small text-muted">Misc</label>
-                    <textarea class="form-control structured-field char-field" data-field="misc" rows="2"></textarea>
+        <div class="collapse show" id="charBodyTemplate">
+            <div class="card-body">
+                <div class="row g-3">
+                    {{ field_row('role', 'Role', kind='input') }}
+                    {{ field_row('age_species', 'Age/Species', kind='input') }}
+                    {{ field_row('appearance', 'Appearance') }}
+                    {{ field_row('personality', 'Personality') }}
+                    {{ field_row('goal_motivation', 'Goal/motivation') }}
+                    {{ field_row('background', 'Background') }}
+                    {{ field_row('flaw', 'Flaw', rows=2) }}
+                    {{ field_row('skills', 'Skills', rows=2) }}
+                    {{ field_row('relationships', 'Relationships') }}
+                    {{ field_row('arc', 'Arc') }}
+                    {{ field_row('misc', 'Misc', rows=2) }}
                 </div>
             </div>
         </div>
@@ -656,11 +608,23 @@ $(document).ready(function() {
         });
     }
 
+    let characterCardCounter = 0;
+
     $('#addCharacterBtn').click(function() {
         const template = document.getElementById('characterCardTemplate');
         const clone = template.content.cloneNode(true);
         document.getElementById('characterCards').appendChild(clone);
         const last = document.getElementById('characterCards').lastElementChild;
+
+        // Give the collapse target a unique id so each card expands independently.
+        characterCardCounter += 1;
+        const body = last.querySelector('.collapse');
+        const bodyId = 'charBodyNew' + characterCardCounter;
+        body.id = bodyId;
+        const toggle = last.querySelector('.character-collapse-btn');
+        toggle.setAttribute('data-bs-target', '#' + bodyId);
+        toggle.setAttribute('aria-controls', bodyId);
+
         if (window.StructuredEditor) window.StructuredEditor.init(last);
         bindRemoveButtons(last);
         last.querySelector('.character-name').focus();

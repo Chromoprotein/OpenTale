@@ -215,8 +215,6 @@
             if (textarea.dataset.structuredReady) return;
             textarea.dataset.structuredReady = '1';
 
-            const wrapper = document.createElement('div');
-            wrapper.className = 'd-flex align-items-center gap-2 mb-1';
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'btn btn-outline-primary btn-sm';
@@ -225,8 +223,19 @@
             button.addEventListener('click', function () {
                 openForTextarea(textarea);
             });
-            wrapper.appendChild(button);
-            textarea.parentNode.insertBefore(wrapper, textarea);
+
+            // Prefer placing the button on the same row as the field label so
+            // the field itself keeps the full width. Fall back to a wrapper
+            // above the textarea when no header is present.
+            const header = textarea.previousElementSibling;
+            if (header && header.classList.contains('structured-field-header')) {
+                header.appendChild(button);
+            } else {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'd-flex align-items-center gap-2 mb-1';
+                wrapper.appendChild(button);
+                textarea.parentNode.insertBefore(wrapper, textarea);
+            }
         });
     }
 
