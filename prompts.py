@@ -21,6 +21,9 @@ And considering:
 - Characters: {relevant_characters}
 - Previous chapter outline: {previous_chapter_outline}
 
+Author's scene request:
+{scene_description}
+
 Generate a detailed scene that includes:
 1. Setting description with sensory details
 2. Character interactions and dialogue

@@ -1794,8 +1794,12 @@ def scene(chapter_number):
 
     # Handle POST request for scene generation
     if request.method == "POST":
-        # scene description is not used in this context, but can be added if needed
-        # scene_description = request.form.get("scene_description", "")
+        scene_description = request.form.get("scene_description", "").strip()
+        if not scene_description:
+            scene_description = (
+                "(No specific scene was requested - choose the strongest next "
+                "beat from the outline.)"
+            )
 
         # Generate the scene
         world_theme = get_world_theme(include_all=False)
@@ -1820,6 +1824,7 @@ def scene(chapter_number):
                 world_theme=world_theme,
                 relevant_characters=characters,  # Already filtered by include_in_context
                 previous_chapter_outline=previous_chapter_outline,
+                scene_description=scene_description,
             ),
         )
 
