@@ -174,3 +174,174 @@ def test_delete_removes_json_and_text(client, app_module):
 
     assert not os.path.exists(app_module.WORLD_JSON_FILE)
     assert not os.path.exists(app_module.WORLD_FILE)
+
+
+# --------------------------------------------------------------------------
+# Chapter context filtering (include_in_context)
+# --------------------------------------------------------------------------
+
+
+def world_with_flags(app_module):
+    return app_module.save_world_json(
+        {
+            "sections": [
+                {
+                    "id": "major_locations",
+                    "title": "Included Place",
+                    "content": "KEEP_WORLD",
+                    "include_in_context": True,
+                },
+                {
+                    "id": "other",
+                    "title": "Hidden Place",
+                    "content": "DROP_WORLD",
+                    "include_in_context": False,
+                },
+            ]
+        }
+    )
+
+
+def characters_with_flags(app_module):
+    return app_module.save_characters_json(
+        {
+            "characters": [
+                {"name": "Keeper", "role": "Hero", "include_in_context": True},
+                {"name": "DropMe", "role": "Villain", "include_in_context": False},
+            ]
+        }
+    )
+
+
+def make_outline(*titles):
+    return {
+        "chapters": [
+            {
+                "title": title,
+                "key_events": ["Something happens."],
+            }
+            for title in titles
+        ]
+    }
+
+
+def test_world_to_text_filters_excluded_sections(app_module):
+    world = app_module._normalize_world(
+        {
+            "sections": [
+                {
+                    "id": "other",
+                    "title": "Keep",
+                    "content": "KEEP",
+                    "include_in_context": True,
+                },
+                {
+                    "id": "other",
+                    "title": "Drop",
+                    "content": "DROP",
+                    "include_in_context": False,
+                },
+            ]
+        }
+    )
+
+    full = app_module.world_to_text(world)
+    filtered = app_module.world_to_text(world, include_all=False)
+
+    assert "DROP" in full and "KEEP" in full
+    assert "KEEP" in filtered
+    assert "DROP" not in filtered
+
+
+def test_characters_to_text_filters_excluded_characters(app_module):
+    data = {
+        "characters": [
+            {"name": "Keeper", "role": "Hero", "include_in_context": True},
+            {"name": "DropMe", "role": "Villain", "include_in_context": False},
+        ]
+    }
+
+    assert "DropMe" in app_module.characters_to_text(data)
+    filtered = app_module.characters_to_text(data, include_all=False)
+    assert "Keeper" in filtered
+    assert "DropMe" not in filtered
+
+
+def test_excluding_everything_returns_empty_string(app_module):
+    app_module.save_world_json(
+        {
+            "sections": [
+                {
+                    "id": "other",
+                    "title": "X",
+                    "content": "y",
+                    "include_in_context": False,
+                }
+            ]
+        }
+    )
+    app_module.save_characters_json(
+        {"characters": [{"name": "X", "include_in_context": False}]}
+    )
+
+    assert app_module.get_world_theme(include_all=False) == ""
+    assert app_module.get_characters(include_all=False) == ""
+    # The full view still shows everything.
+    assert app_module.get_world_theme()
+    assert app_module.get_characters()
+
+
+def test_chapter_prompt_respects_include_in_context(client, app_module):
+    app_module.build_chapters_from_outline(_outline("Alpha"))
+    os.makedirs(app_module.BOOK_OUTPUT_DIR, exist_ok=True)
+    with open(app_module.SYNOPSIS_FILE, "w", encoding="utf-8") as handle:
+        handle.write("A synopsis.")
+    app_module.save_world_json(
+        {
+            "sections": [
+                {
+                    "id": "major_locations",
+                    "title": "IncludedPlace",
+                    "content": "KEEP_WORLD",
+                    "include_in_context": True,
+                },
+                {
+                    "id": "other",
+                    "title": "HiddenPlace",
+                    "content": "DROP_WORLD",
+                    "include_in_context": False,
+                },
+            ]
+        }
+    )
+    app_module.save_characters_json(
+        {
+            "characters": [
+                {"name": "Keeper", "role": "Hero", "include_in_context": True},
+                {"name": "DropMe", "role": "Villain", "include_in_context": False},
+            ]
+        }
+    )
+
+    response = client.post(
+        "/chapter_stream/1", json={"master_prompt": "", "show_prompt": True}
+    )
+
+    prompt = response.get_json()["user_prompt"]
+    assert "KEEP_WORLD" in prompt
+    assert "Keeper" in prompt
+    assert "DROP_WORLD" not in prompt
+    assert "DropMe" not in prompt
+
+
+def _outline(*titles):
+    return {
+        "chapters": [
+            {
+                "number": index + 1,
+                "title": title,
+                "key_events": ["Event"],
+            }
+            for index, title in enumerate(titles)
+        ]
+    }

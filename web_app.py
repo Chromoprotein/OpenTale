@@ -57,23 +57,30 @@ agent_config = get_config()
 
 
 # Helper functions to read data from files
-def get_world_theme():
+def get_world_theme(include_all=True):
     """Get the world setting as readable text.
 
     Structured data is stored in ``world.json``; legacy ``world.txt`` files are
     migrated on read. The text form is returned for templates and prompts that
     still expect a string.
+
+    Pass ``include_all=False`` to omit sections the author excluded from the
+    chapter context (``include_in_context`` is False).
     """
-    return world_to_text(load_world())
+    return world_to_text(load_world(), include_all=include_all)
 
 
-def get_characters():
+def get_characters(include_all=True):
     """Get character profiles as readable text.
 
     Structured data is stored in ``characters.json``; legacy ``characters.txt``
     files are migrated on read.
+
+    Pass ``include_all=False`` to omit characters the author excluded from the
+    chapter context (``include_in_context`` is False). If every character is
+    excluded, an empty string is returned rather than the raw text.
     """
-    return characters_to_text(load_characters())
+    return characters_to_text(load_characters(), include_all=include_all)
 
 
 def get_outline():
@@ -1042,9 +1049,9 @@ def chapter(chapter_number):
         settings_to_save["chapters"][str(chapter_number)]["tense"] = tense
         save_settings(settings_to_save)
 
-        # Load foundational book data
-        world_theme = get_world_theme()
-        characters = get_characters()
+        # Load foundational book data (respecting per-item context selection)
+        world_theme = get_world_theme(include_all=False)
+        characters = get_characters(include_all=False)
 
         # Get the previous chapter's outline as continuity context
         previous_chapter_outline = get_previous_chapter_outline(
@@ -1071,7 +1078,7 @@ def chapter(chapter_number):
                 chapter_title=chapter_data["title"],
                 chapter_outline=chapter_prompt,
                 world_theme=world_theme,
-                relevant_characters=characters,  # You might want to filter for relevant characters only
+                relevant_characters=characters,  # Already filtered by include_in_context
                 scene_details=get_scenes_details(chapter_number),
                 previous_chapter_outline=previous_chapter_outline,
                 point_of_view=point_of_view,
@@ -1161,9 +1168,9 @@ def _handle_chapter_stream(chapter_number, agent_name):
     settings_to_save["chapters"][str(chapter_number)]["tense"] = tense
     save_settings(settings_to_save)
 
-    # Load foundational book data
-    world_theme = get_world_theme()
-    characters = get_characters()
+    # Load foundational book data (respecting per-item context selection)
+    world_theme = get_world_theme(include_all=False)
+    characters = get_characters(include_all=False)
 
     # Get the previous chapter's outline as continuity context
     previous_chapter_outline = get_previous_chapter_outline(chapter_number, chapters)
@@ -1196,7 +1203,7 @@ def _handle_chapter_stream(chapter_number, agent_name):
         chapter_title=chapter_data["title"],
         chapter_outline=chapter_data["prompt"],
         world_theme=world_theme,
-        relevant_characters=characters,  # You might want to filter for relevant characters only
+        relevant_characters=characters,  # Already filtered by include_in_context
         scene_details=get_scenes_details(chapter_number),
         previous_chapter_outline=previous_chapter_outline,
         point_of_view=point_of_view,
@@ -1380,7 +1387,12 @@ def _chapter_editing_context(chapter_number):
     chapter_data = next(
         (ch for ch in chapters if ch["chapter_number"] == chapter_number), None
     )
-    return chapters, chapter_data, get_world_theme(), get_characters()
+    return (
+        chapters,
+        chapter_data,
+        get_world_theme(include_all=False),
+        get_characters(include_all=False),
+    )
 
 
 def _chapter_not_found_response(chapter_number):
@@ -1786,8 +1798,8 @@ def scene(chapter_number):
         # scene_description = request.form.get("scene_description", "")
 
         # Generate the scene
-        world_theme = get_world_theme()
-        characters = get_characters()
+        world_theme = get_world_theme(include_all=False)
+        characters = get_characters(include_all=False)
 
         # Get the previous chapter's outline as continuity context
         previous_chapter_outline = get_previous_chapter_outline(
@@ -1806,7 +1818,7 @@ def scene(chapter_number):
                 chapter_title=chapter_data.get("title", f"Chapter {chapter_number}"),
                 chapter_outline=chapter_data.get("prompt", ""),
                 world_theme=world_theme,
-                relevant_characters=characters,  # You might want to filter for relevant characters only
+                relevant_characters=characters,  # Already filtered by include_in_context
                 previous_chapter_outline=previous_chapter_outline,
             ),
         )
@@ -2849,13 +2861,20 @@ def save_world_json(world):
     return normalized
 
 
-def world_to_text(world):
-    """Serialize a structured world back into readable text for prompts/editors."""
+def world_to_text(world, include_all=True):
+    """Serialize a structured world back into readable text for prompts/editors.
+
+    When ``include_all`` is False, only sections flagged for inclusion in the
+    chapter context are emitted. This is what narrows the worldbuilding passed
+    to the chapter writer/editor.
+    """
     if not world:
         return ""
     sections = world.get("sections") or []
     parts = []
     for section in sections:
+        if not include_all and not section.get("include_in_context", True):
+            continue
         title = section.get("title") or section.get("id", "")
         content = (section.get("content") or "").strip()
         if title and content:
@@ -2866,6 +2885,8 @@ def world_to_text(world):
             parts.append(f"## {title}")
     if parts:
         return "\n\n".join(parts).strip()
+    if not include_all:
+        return ""
     return (world.get("full_text") or "").strip()
 
 
@@ -2954,13 +2975,21 @@ def save_characters_text(text):
     return save_characters_json(parse_characters_text_to_json(text))
 
 
-def characters_to_text(data):
-    """Serialize structured characters back into readable profile text."""
+def characters_to_text(data, include_all=True):
+    """Serialize structured characters back into readable profile text.
+
+    When ``include_all`` is False, only characters flagged for inclusion in the
+    chapter context are emitted.
+    """
     if not data:
         return ""
     characters = data.get("characters") or []
-    if not characters:
-        return (data.get("raw_text") or "").strip()
+    if include_all:
+        selected = characters
+    else:
+        selected = [char for char in characters if char.get("include_in_context", True)]
+    if not selected:
+        return "" if not include_all else (data.get("raw_text") or "").strip()
     labels = {
         "role": "Role",
         "age_species": "Age/Species",
@@ -2976,7 +3005,7 @@ def characters_to_text(data):
         "notes": "Notes",
     }
     blocks = ["CHARACTER_PROFILES:"]
-    for char in characters:
+    for char in selected:
         name = (char.get("name") or "").strip() or char.get("id", "")
         blocks.append(f"[{name}]:")
         for key, label in labels.items():
