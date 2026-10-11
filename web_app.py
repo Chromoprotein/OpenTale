@@ -2599,8 +2599,88 @@ def _world_section_id_for(title, index=None):
     return "other"
 
 
+def _strip_world_title(title):
+    """Remove surrounding markdown emphasis from a section heading."""
+    return re.sub(r"^\*+|\*+$", "", (title or "").strip()).strip()
+
+
+def _world_sections_from_markdown_headings(text):
+    """Split on the shallowest markdown heading level that has several entries.
+
+    Choosing the shallowest level that repeats keeps a single leading document
+    title (e.g. an ``#`` line) from being mistaken for the only section, and
+    keeps deeper sub-headings part of their parent section's content.
+    """
+    heading_pattern = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
+    headings = list(heading_pattern.finditer(text))
+    if not headings:
+        return None
+
+    chosen = None
+    for level in range(1, 7):
+        matching = [m for m in headings if len(m.group(1)) == level]
+        if len(matching) >= 2:
+            chosen = matching
+            break
+    if not chosen:
+        return None
+
+    sections = []
+    for i, m in enumerate(chosen):
+        title = _strip_world_title(m.group(2))
+        start = m.end()
+        end = chosen[i + 1].start() if i + 1 < len(chosen) else len(text)
+        content = text[start:end].strip()
+        sections.append((title, content))
+    return sections
+
+
+def _parse_numbered_world_sections(text):
+    """Parse ``1. Title`` / ``1. Title: description`` style sections.
+
+    Only a sequence that starts at 1 and increments is treated as sections, so
+    numbered lists nested inside a section do not fragment it. A colon on the
+    heading line separates the title from the start of its content.
+    """
+    numbered_pattern = re.compile(
+        r"^\s*(\d+)\.\s+(.+?)(?:\n|$)", re.MULTILINE | re.IGNORECASE
+    )
+    matches = list(numbered_pattern.finditer(text))
+
+    accepted = []
+    expected = 1
+    for m in matches:
+        if int(m.group(1)) == expected:
+            accepted.append(m)
+            expected += 1
+    if not accepted:
+        return None
+
+    sections = []
+    for i, m in enumerate(accepted):
+        line = m.group(2).strip()
+        if ":" in line:
+            title, _, description = line.partition(":")
+            title = title.strip()
+            prefix = description.strip()
+        else:
+            title = line
+            prefix = ""
+        start = m.end()
+        end = accepted[i + 1].start() if i + 1 < len(accepted) else len(text)
+        body = text[start:end].strip()
+        content = f"{prefix}\n{body}".strip() if prefix else body
+        sections.append((title, content))
+    return sections
+
+
 def parse_world_text_to_json(text):
-    """Parse worldbuilding text into structured JSON."""
+    """Parse worldbuilding text into structured JSON.
+
+    Headings are preferred over numbered lists: world documents often use
+    ``### Section`` headings while also containing numbered lists inside a
+    section, and matching the list items as sections would shred the document.
+    """
     if not text or not text.strip():
         return {
             "version": 1,
@@ -2612,127 +2692,44 @@ def parse_world_text_to_json(text):
     text_stripped = text.strip()
     sections = []
 
-    numbered_pattern = re.compile(
-        r"^\s*(\d+)\.\s+(.+?)(?:\n|$)", re.MULTILINE | re.IGNORECASE
-    )
-    matches = list(numbered_pattern.finditer(text_stripped))
+    keyed_sections = _world_sections_from_markdown_headings(text_stripped)
+    if not keyed_sections:
+        keyed_sections = _parse_numbered_world_sections(text_stripped)
+    if not keyed_sections:
+        bold_pattern = re.compile(r"^\s*\*\*(.+?)\*\*\s*$", re.MULTILINE)
+        bmatches = list(bold_pattern.finditer(text_stripped))
+        if len(bmatches) >= 2:
+            keyed_sections = []
+            for i, m in enumerate(bmatches):
+                title = m.group(1).strip()
+                start = m.end()
+                end = (
+                    bmatches[i + 1].start()
+                    if i + 1 < len(bmatches)
+                    else len(text_stripped)
+                )
+                keyed_sections.append((title, text_stripped[start:end].strip()))
 
-    if matches:
-        for i, m in enumerate(matches):
-            sec_num = int(m.group(1))
-            title = m.group(2).strip()
-            start = m.end()
-            end = matches[i + 1].start() if i + 1 < len(matches) else len(text_stripped)
-            content = text_stripped[start:end].strip()
-            content = re.sub(r"^[\s\-:]*\n?", "", content)
-            sid = _world_section_id_for(title, sec_num - 1)
+    if keyed_sections:
+        for index, (title, content) in enumerate(keyed_sections):
             sections.append(
                 {
-                    "id": sid,
+                    "id": _world_section_id_for(title, index),
                     "title": title,
                     "content": content,
                     "include_in_context": True,
                 }
             )
-        if sections:
-            return {
-                "version": 1,
-                "generated_at": _now_iso(),
-                "sections": sections,
-                "full_text": text_stripped,
+    else:
+        sections = [
+            {
+                "id": "other",
+                "title": "World Setting",
+                "content": text_stripped,
+                "include_in_context": True,
             }
+        ]
 
-    header_pattern = re.compile(r"^#{2,3}\s+(.+?)$", re.MULTILINE)
-    hmatches = list(header_pattern.finditer(text_stripped))
-    if hmatches:
-        for i, m in enumerate(hmatches):
-            title_raw = m.group(1).strip()
-            title = re.sub(r"^\*+", "", title_raw).strip()
-            title = re.sub(r"\*+$", "", title).strip()
-            start = m.end()
-            end = (
-                hmatches[i + 1].start() if i + 1 < len(hmatches) else len(text_stripped)
-            )
-            content = text_stripped[start:end].strip()
-            sid = _world_section_id_for(title)
-            sections.append(
-                {
-                    "id": sid,
-                    "title": title,
-                    "content": content,
-                    "include_in_context": True,
-                }
-            )
-        if sections:
-            return {
-                "version": 1,
-                "generated_at": _now_iso(),
-                "sections": sections,
-                "full_text": text_stripped,
-            }
-
-    bold_pattern = re.compile(r"^\s*\*\*(.+?)\*\*\s*$", re.MULTILINE)
-    bmatches = list(bold_pattern.finditer(text_stripped))
-    if bmatches and len(bmatches) >= 2:
-        for i, m in enumerate(bmatches):
-            title = m.group(1).strip()
-            start = m.end()
-            end = (
-                bmatches[i + 1].start() if i + 1 < len(bmatches) else len(text_stripped)
-            )
-            content = text_stripped[start:end].strip()
-            sid = _world_section_id_for(title)
-            sections.append(
-                {
-                    "id": sid,
-                    "title": title,
-                    "content": content,
-                    "include_in_context": True,
-                }
-            )
-        if sections:
-            return {
-                "version": 1,
-                "generated_at": _now_iso(),
-                "sections": sections,
-                "full_text": text_stripped,
-            }
-
-    # Try splitting by top-level world sections like ### **LEO'S WORLD** or ### **ELYSIA**
-    h3_pattern = re.compile(r"^###\s+(.+?)$", re.MULTILINE)
-    h3m = list(h3_pattern.finditer(text_stripped))
-    if h3m:
-        for i, m in enumerate(h3m):
-            title_raw = m.group(1).strip()
-            title = re.sub(r"^\*+", "", title_raw).strip()
-            title = re.sub(r"\*+$", "", title).strip()
-            start = m.end()
-            end = h3m[i + 1].start() if i + 1 < len(h3m) else len(text_stripped)
-            content = text_stripped[start:end].strip()
-            sid = _world_section_id_for(title)
-            sections.append(
-                {
-                    "id": sid,
-                    "title": title,
-                    "content": content,
-                    "include_in_context": True,
-                }
-            )
-        if sections:
-            return {
-                "version": 1,
-                "generated_at": _now_iso(),
-                "sections": sections,
-                "full_text": text_stripped,
-            }
-    sections = [
-        {
-            "id": "other",
-            "title": "World Setting",
-            "content": text_stripped,
-            "include_in_context": True,
-        }
-    ]
     return {
         "version": 1,
         "generated_at": _now_iso(),

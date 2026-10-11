@@ -56,6 +56,45 @@ def test_world_text_parses_markdown_headings(app_module):
     assert [s["title"] for s in world["sections"]] == ["LEO'S WORLD", "ELYSIA"]
 
 
+def test_world_text_headings_win_over_numbered_lists_inside_sections(app_module):
+    world = app_module.parse_world_text_to_json(
+        "### Time period and setting\n"
+        "A modern world with old magic.\n\n"
+        "### Major locations\n"
+        "The city of X.\n"
+        "1. The market district\n"
+        "2. The palace\n"
+        "3. The docks\n\n"
+        "### Culture\n"
+        "Festivals and such.\n"
+    )
+
+    sections = world["sections"]
+    assert [s["title"] for s in sections] == [
+        "Time period and setting",
+        "Major locations",
+        "Culture",
+    ]
+    assert "1. The market district" in sections[1]["content"]
+    assert "### Culture" not in sections[1]["content"]
+    assert sections[2]["content"] == "Festivals and such."
+
+
+def test_world_text_numbered_titles_split_on_colon(app_module):
+    world = app_module.parse_world_text_to_json(
+        "1. Time period and setting: A modern world with old magic.\n\n"
+        "2. Major locations: The warehouse.\n"
+    )
+
+    sections = world["sections"]
+    assert [s["title"] for s in sections] == [
+        "Time period and setting",
+        "Major locations",
+    ]
+    assert sections[0]["content"] == "A modern world with old magic."
+    assert sections[1]["content"] == "The warehouse."
+
+
 def test_character_text_parses_profiles_and_fields(app_module):
     data = app_module.parse_characters_text_to_json(
         "CHARACTER_PROFILES:\n\n**LEO:**\n\n"

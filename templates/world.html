@@ -146,8 +146,33 @@
 $(document).ready(function() {
     // Chat history (persisted in localStorage)
     const CHAT_KEY = 'opentale_chat_world';
+    const DRAFT_KEY = 'opentale_world_draft';
     let chatHistory = loadChatHistory(CHAT_KEY) || [];
     let lastDraftText = null;
+
+    // Persist the finalized draft so "Use Draft in Editor" survives a reload
+    // until the user sends another message or clears/deletes the chat.
+    function setDraft(text) {
+        lastDraftText = text || null;
+        try {
+            if (lastDraftText) {
+                localStorage.setItem(DRAFT_KEY, lastDraftText);
+            } else {
+                localStorage.removeItem(DRAFT_KEY);
+            }
+        } catch (e) {
+            console.error('Could not persist world draft:', e);
+        }
+        $('#useDraftBtn').prop('disabled', !lastDraftText);
+    }
+
+    try {
+        lastDraftText = localStorage.getItem(DRAFT_KEY) || null;
+    } catch (e) {
+        console.error('Could not load world draft:', e);
+    }
+    $('#useDraftBtn').prop('disabled', !lastDraftText);
+
     const chatButtons = {
         finalizeBtn: '#finalizeChatBtn',
         acceptBtn: '#acceptWorldBtn',
@@ -194,8 +219,7 @@ $(document).ready(function() {
         confirmClearChat(function() {
             chatEditing.cancel();
             chatHistory = [];
-            lastDraftText = null;
-            $('#useDraftBtn').prop('disabled', true);
+            setDraft(null);
             clearChatHistory(CHAT_KEY);
             $('#chatMessages').empty();
             if ($('#worldResultContainer').data('has-world') === 'False') {
@@ -228,9 +252,10 @@ $(document).ready(function() {
         const message = $('#userMessage').val().trim();
         if (!message) return;
 
+        // A new message invalidates any previously finalized draft
+        setDraft(null);
+
         if (chatEditing.active()) {
-            lastDraftText = null;
-            $('#useDraftBtn').prop('disabled', true);
             chatEditing.submit(message);
             saveChatHistory(CHAT_KEY, chatHistory);
             updateChatButtonStates(chatHistory, chatButtons);
@@ -408,10 +433,9 @@ $(document).ready(function() {
                         draftBubble.find('.typing-cursor').remove();
                         // Save the draft to history and enable moving it to the editor
                         if (draftText) {
-                            lastDraftText = draftText;
+                            setDraft(draftText);
                             chatHistory.push({role: 'ai', content: draftText});
                             saveChatHistory(CHAT_KEY, chatHistory);
-                            $('#useDraftBtn').prop('disabled', false);
                         }
                         return;
                     }
@@ -484,8 +508,7 @@ $(document).ready(function() {
         chatHistory = [];
         clearChatHistory(CHAT_KEY);
         $('#chatMessages').empty();
-        lastDraftText = null;
-        $('#useDraftBtn').prop('disabled', true);
+        setDraft(null);
         updateChatButtonStates(chatHistory, chatButtons);
     });
     
@@ -494,6 +517,7 @@ $(document).ready(function() {
         confirmAction({ title: 'Delete World Setting', message: 'Delete the world setting? This cannot be undone.', confirmText: 'Delete' }, function() {
             $.post('/delete_world').done(function() {
                 clearChatHistory(CHAT_KEY);
+                setDraft(null);
                 window.location.reload();
             }).fail(function() {
                 alert('Error deleting world setting. Please try again.');
