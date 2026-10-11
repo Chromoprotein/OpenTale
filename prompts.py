@@ -13,16 +13,16 @@ The system prompts that frame these requests live in ``agents.py``, in the
 SCENE_GENERATION_PROMPT = """
 For Chapter {chapter_number}: {chapter_title}
 
-Based on the chapter outline:
+Author's scene request:
+{scene_description}
+
+Write only the requested scene. For reference, the entire chapter's outline is:
 {chapter_outline}
 
 And considering:
 - World: {world_theme}
 - Characters: {relevant_characters}
 - Previous chapter outline: {previous_chapter_outline}
-
-Author's scene request:
-{scene_description}
 
 Generate a detailed scene that includes:
 1. Setting description with sensory details
